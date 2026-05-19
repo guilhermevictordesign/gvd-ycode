@@ -631,8 +631,9 @@ function renderInlineContent(
       return [React.createElement(HtmlEmbedRenderer, { key, code: htmlCode })];
     }
 
-    // Handle richTextImage nodes that may appear inline from CMS rich_text expansion
-    if (node.type === 'richTextImage') {
+    // Handle richTextImage nodes that may appear inline from CMS rich_text expansion.
+    // Legacy migrated content may use `image` as the node type — accept both.
+    if (node.type === 'richTextImage' || node.type === 'image') {
       const imgProps: Record<string, any> = {
         key,
         src: node.attrs?.src || '',
@@ -864,7 +865,7 @@ function renderBlock(
     );
   }
 
-  if (block.type === 'richTextImage') {
+  if (block.type === 'richTextImage' || block.type === 'image') {
     const imgProps: Record<string, any> = {
       key,
       src: block.attrs?.src || '',

@@ -16,6 +16,10 @@ import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip
 import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group';
 import { InputAutocomplete } from '@/components/ui/input-autocomplete';
 import { LOCALES, extractPageTranslatableItems, extractFolderTranslatableItems, extractComponentTranslatableItems, extractCmsTranslatableItems } from '@/lib/localisation-utils';
+import { findLayerById } from '@/lib/layer-utils';
+import { buildFieldGroupsForLayer } from '@/lib/collection-field-utils';
+import type { TranslatableItem } from '@/lib/localisation-utils';
+import type { Layer, Page } from '@/types';
 import { useLocalisationStore } from '@/stores/useLocalisationStore';
 import { usePagesStore } from '@/stores/usePagesStore';
 import { useCollectionsStore } from '@/stores/useCollectionsStore';
@@ -83,6 +87,25 @@ export default function LocalizationContent({ children }: LocalizationContentPro
   const allFields = useCollectionsStore((state) => state.fields);
   const collections = useCollectionsStore((state) => state.collections);
   const items = useCollectionsStore((state) => state.items);
+
+  /**
+   * Build CMS variable field groups for a translation item using the same
+   * resolution rules as the canvas right-sidebar: walks parent collection
+   * layers and merges page-bound collection fields. Returns `undefined` for
+   * non-layer items (slug, SEO, CMS field translations) so the picker stays
+   * hidden where the canvas wouldn't show one either.
+   */
+  const buildFieldGroupsForTranslationItem = (
+    item: TranslatableItem,
+    layers: Layer[],
+    page?: Page | null,
+  ) => {
+    const match = item.content_key.match(/^layer:([^:]+):/);
+    if (!match) return undefined;
+    const layerId = match[1];
+    if (!findLayerById(layers, layerId)) return undefined;
+    return buildFieldGroupsForLayer(layerId, layers, page || null, allFields, collections);
+  };
 
   // URL management
   const router = useRouter();
@@ -662,44 +685,32 @@ export default function LocalizationContent({ children }: LocalizationContentPro
                               </div>
                             </header>
 
-                            {isExpanded && (() => {
-                              // Build field groups for this page's collection (if dynamic)
-                              const pageCollectionId = page.settings?.cms?.collection_id;
-                              const pageFields = pageCollectionId ? (allFields[pageCollectionId] || []) : [];
-                              const collection = pageCollectionId ? collections.find(c => c.id === pageCollectionId) : null;
-                              const pageFieldGroups = pageFields.length > 0 ? [{
-                                fields: pageFields,
-                                label: collection?.name || 'Page collection fields',
-                                source: 'page' as const,
-                              }] : undefined;
-
-                              return (
-                                <ul className="border-b px-4 py-5 flex flex-col gap-5">
-                                  {filteredItems.map((item) => (
-                                    <TranslationRow
-                                      key={item.key}
-                                      item={item}
-                                      selectedLocaleId={selectedLocaleId}
-                                      localInputValues={localInputValues}
-                                      onLocalValueChange={handleLocalValueChange}
-                                      onLocalValueClear={handleLocalValueClear}
-                                      getTranslationByKey={getTranslationByKey}
-                                      createTranslation={createTranslation}
-                                      updateTranslation={updateTranslation}
-                                      updateTranslationValue={updateTranslationValue}
-                                      updateTranslationStatus={updateTranslationStatus}
-                                      deleteTranslation={deleteTranslation}
-                                      fieldGroups={pageFieldGroups}
-                                      allFields={allFields}
-                                      collections={collections}
-                                      pages={storePages}
-                                      folders={storeFolders}
-                                      sourceItem={page}
-                                    />
-                                  ))}
-                                </ul>
-                              );
-                            })()}
+                            {isExpanded && (
+                              <ul className="border-b px-4 py-5 flex flex-col gap-5">
+                                {filteredItems.map((item) => (
+                                  <TranslationRow
+                                    key={item.key}
+                                    item={item}
+                                    selectedLocaleId={selectedLocaleId}
+                                    localInputValues={localInputValues}
+                                    onLocalValueChange={handleLocalValueChange}
+                                    onLocalValueClear={handleLocalValueClear}
+                                    getTranslationByKey={getTranslationByKey}
+                                    createTranslation={createTranslation}
+                                    updateTranslation={updateTranslation}
+                                    updateTranslationValue={updateTranslationValue}
+                                    updateTranslationStatus={updateTranslationStatus}
+                                    deleteTranslation={deleteTranslation}
+                                    fieldGroups={buildFieldGroupsForTranslationItem(item, layers, page)}
+                                    allFields={allFields}
+                                    collections={collections}
+                                    pages={storePages}
+                                    folders={storeFolders}
+                                    sourceItem={page}
+                                  />
+                                ))}
+                              </ul>
+                            )}
                           </div>
                         );
                       })
@@ -754,7 +765,7 @@ export default function LocalizationContent({ children }: LocalizationContentPro
                             </header>
 
                             <ul className="border-b px-4 py-5 flex flex-col gap-5">
-                              {translatableItems.map((item) => (
+                              {filteredItems.map((item) => (
                                 <TranslationRow
                                   key={item.key}
                                   item={item}
@@ -826,7 +837,7 @@ export default function LocalizationContent({ children }: LocalizationContentPro
                             </header>
 
                             <ul className="border-b px-4 py-5 flex flex-col gap-5">
-                              {translatableItems.map((item) => (
+                              {filteredItems.map((item) => (
                                 <TranslationRow
                                   key={item.key}
                                   item={item}
@@ -840,6 +851,9 @@ export default function LocalizationContent({ children }: LocalizationContentPro
                                   updateTranslationValue={updateTranslationValue}
                                   updateTranslationStatus={updateTranslationStatus}
                                   deleteTranslation={deleteTranslation}
+                                  fieldGroups={buildFieldGroupsForTranslationItem(item, layers)}
+                                  allFields={allFields}
+                                  collections={collections}
                                 />
                               ))}
                             </ul>

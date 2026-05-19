@@ -242,62 +242,27 @@ export async function publishLocalisation(): Promise<PublishLocalisationResult> 
       }
     }
 
-    // Step 3: Insert or update published locales
+    // Step 3: Upsert published locales
     if (activeDraftLocales.length > 0) {
-      // First, fetch existing published locales to determine insert vs update
-      const { data: existingPublished } = await client
+      const publishedLocales = activeDraftLocales.map((locale: Locale) => ({
+        id: locale.id,
+        code: locale.code,
+        label: locale.label,
+        is_default: locale.is_default,
+        is_published: true,
+        created_at: locale.created_at,
+        updated_at: locale.updated_at,
+        deleted_at: null,
+      }));
+
+      const { error: upsertError } = await client
         .from('locales')
-        .select('id')
-        .eq('is_published', true)
-        .in('id', activeDraftLocales.map((l: Locale) => l.id));
+        .upsert(publishedLocales, {
+          onConflict: 'id,is_published',
+        });
 
-      const existingPublishedIds = new Set(existingPublished?.map(l => l.id) || []);
-
-      const localesToInsert: any[] = [];
-      const localesToUpdate: any[] = [];
-
-      for (const locale of activeDraftLocales) {
-        const publishedData = {
-          id: locale.id,
-          code: locale.code,
-          label: locale.label,
-          is_default: locale.is_default,
-          is_published: true,
-          created_at: locale.created_at,
-          updated_at: locale.updated_at,
-          deleted_at: null,
-        };
-
-        if (existingPublishedIds.has(locale.id)) {
-          localesToUpdate.push(publishedData);
-        } else {
-          localesToInsert.push(publishedData);
-        }
-      }
-
-      // Insert new published locales
-      if (localesToInsert.length > 0) {
-        const { error: insertError } = await client
-          .from('locales')
-          .insert(localesToInsert);
-
-        if (insertError) {
-          throw new Error(`Failed to insert published locales: ${insertError.message}`);
-        }
-      }
-
-      // Update existing published locales (batch operation)
-      if (localesToUpdate.length > 0) {
-        // Use upsert for updates since we know these records exist
-        const { error: updateError } = await client
-          .from('locales')
-          .upsert(localesToUpdate, {
-            onConflict: 'id,is_published',
-          });
-
-        if (updateError) {
-          throw new Error(`Failed to update published locales: ${updateError.message}`);
-        }
+      if (upsertError) {
+        throw new Error(`Failed to upsert published locales: ${upsertError.message}`);
       }
 
       publishedLocalesCount = activeDraftLocales.length;
@@ -384,66 +349,31 @@ export async function publishLocalisation(): Promise<PublishLocalisationResult> 
       }
     }
 
-    // Step 6: Insert or update published translations
+    // Step 6: Upsert published translations
     if (activeDraftTranslations.length > 0) {
-      // First, fetch existing published translations to determine insert vs update
-      const { data: existingPublished } = await client
+      const publishedTranslations = activeDraftTranslations.map((translation: Translation) => ({
+        id: translation.id,
+        locale_id: translation.locale_id,
+        source_type: translation.source_type,
+        source_id: translation.source_id,
+        content_key: translation.content_key,
+        content_type: translation.content_type,
+        content_value: translation.content_value,
+        is_completed: translation.is_completed,
+        is_published: true,
+        created_at: translation.created_at,
+        updated_at: translation.updated_at,
+        deleted_at: null,
+      }));
+
+      const { error: upsertError } = await client
         .from('translations')
-        .select('id')
-        .eq('is_published', true)
-        .in('id', activeDraftTranslations.map((t: Translation) => t.id));
+        .upsert(publishedTranslations, {
+          onConflict: 'id,is_published',
+        });
 
-      const existingPublishedIds = new Set(existingPublished?.map(t => t.id) || []);
-
-      const translationsToInsert: any[] = [];
-      const translationsToUpdate: any[] = [];
-
-      for (const translation of activeDraftTranslations) {
-        const publishedData = {
-          id: translation.id,
-          locale_id: translation.locale_id,
-          source_type: translation.source_type,
-          source_id: translation.source_id,
-          content_key: translation.content_key,
-          content_type: translation.content_type,
-          content_value: translation.content_value,
-          is_completed: translation.is_completed,
-          is_published: true,
-          created_at: translation.created_at,
-          updated_at: translation.updated_at,
-          deleted_at: null,
-        };
-
-        if (existingPublishedIds.has(translation.id)) {
-          translationsToUpdate.push(publishedData);
-        } else {
-          translationsToInsert.push(publishedData);
-        }
-      }
-
-      // Insert new published translations
-      if (translationsToInsert.length > 0) {
-        const { error: insertError } = await client
-          .from('translations')
-          .insert(translationsToInsert);
-
-        if (insertError) {
-          throw new Error(`Failed to insert published translations: ${insertError.message}`);
-        }
-      }
-
-      // Update existing published translations (batch operation)
-      if (translationsToUpdate.length > 0) {
-        // Use upsert for updates since we know these records exist
-        const { error: updateError } = await client
-          .from('translations')
-          .upsert(translationsToUpdate, {
-            onConflict: 'id,is_published',
-          });
-
-        if (updateError) {
-          throw new Error(`Failed to update published translations: ${updateError.message}`);
-        }
+      if (upsertError) {
+        throw new Error(`Failed to upsert published translations: ${upsertError.message}`);
       }
 
       publishedTranslationsCount = activeDraftTranslations.length;

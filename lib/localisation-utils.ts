@@ -9,6 +9,7 @@ import {
 import { createDynamicTextVariable, createDynamicRichTextVariable, createDynamicRichTextVariableFromPlainText, createAssetVariable } from '@/lib/variable-utils';
 import { castValue } from '@/lib/collection-utils';
 import { tiptapDocHasFormatting, tiptapDocToCanonicalString, hasVariableNode, hasAnyTextOrVariable } from '@/lib/tiptap-utils';
+import { isRichTextLayer } from '@/lib/layer-utils';
 import { looksLikeFormattedHtml } from '@/lib/translation-classification';
 import type { IconProps } from '@/components/ui/icon';
 
@@ -326,11 +327,17 @@ function classifyLayerTextForTranslation(
   const textVariable = layer.variables?.text;
   if (!textVariable) return null;
 
+  // Only true rich-text layers (block-level editor with paragraphs/headings/
+  // lists) open in the doc-style sheet. Simple text/heading layers flatten
+  // multi-paragraph content to line breaks on canvas, so the translation
+  // editor should stay inline and compact to match.
+  const isRichLayer = isRichTextLayer(layer);
+
   if (textVariable.type === 'dynamic_text') {
     const text = textVariable.data.content;
     if (!text || typeof text !== 'string' || !text.trim()) return null;
     if (looksLikeFormattedHtml(text) || text.includes('<ycode-inline-variable>')) {
-      return { contentType: 'richtext', value: text.trim(), openInSheet: true };
+      return { contentType: 'richtext', value: text.trim(), openInSheet: isRichLayer };
     }
     return { contentType: 'text', value: text.trim(), openInSheet: false };
   }
@@ -342,7 +349,7 @@ function classifyLayerTextForTranslation(
     if (tiptapDocHasFormatting(doc) || hasVariableNode(doc)) {
       const json = JSON.stringify(doc);
       if (!hasAnyTextOrVariable(doc)) return null;
-      return { contentType: 'richtext', value: json, openInSheet: true };
+      return { contentType: 'richtext', value: json, openInSheet: isRichLayer };
     }
 
     const canonical = tiptapDocToCanonicalString(doc).trim();
@@ -447,7 +454,11 @@ function extractLayerTranslatableItems(
   items: TranslatableItem[]
 ): void {
   for (const layer of layers) {
-    if (layer.key === 'localeSelectorLabel') continue;
+    // The locale-selector label renders the active locale name dynamically and
+    // doesn't need translating. Skip the whole subtree by its parent (`name`)
+    // as well as the inner label layer (`key`) — older content may be missing
+    // the `localeSelectorLabel` key.
+    if (layer.name === 'localeSelector' || layer.key === 'localeSelectorLabel') continue;
 
     const classification = classifyLayerTextForTranslation(layer);
 
@@ -530,7 +541,8 @@ function extractSeoItems(
 /**
  * Extract all translatable items from a page (slug, SEO, and layers)
  * Ordered: slug first, then SEO settings, then layer texts
- * Note: Dynamic page slugs are excluded from translation
+ * Note: Dynamic page slugs and index pages (homepage / folder index) are
+ * excluded — their slug doesn't contribute to the URL.
  */
 export function extractPageTranslatableItems(
   page: Page,
@@ -539,8 +551,8 @@ export function extractPageTranslatableItems(
 ): TranslatableItem[] {
   const items: TranslatableItem[] = [];
 
-  // 1. Extract slug (first) - exclude dynamic pages
-  if (!page.is_dynamic && page.slug && page.slug.trim()) {
+  // 1. Extract slug (first) - exclude dynamic, index, and error pages
+  if (!page.is_dynamic && !page.is_index && !page.error_page && page.slug && page.slug.trim()) {
     const localeName = locale?.label || 'localized';
     items.push({
       key: `page:${page.id}:slug`,
@@ -909,7 +921,7 @@ export function extractLayerTranslatableItemsShallow(
 ): TranslatableItem[] {
   const items: TranslatableItem[] = [];
 
-  if (layer.key === 'localeSelectorLabel') return items;
+  if (layer.name === 'localeSelector' || layer.key === 'localeSelectorLabel') return items;
 
   const classification = classifyLayerTextForTranslation(layer);
   if (classification) {

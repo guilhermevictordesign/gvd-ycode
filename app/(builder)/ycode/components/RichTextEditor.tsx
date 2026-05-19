@@ -30,6 +30,7 @@ import ListItem from '@tiptap/extension-list-item';
 import Heading from '@tiptap/extension-heading';
 import Blockquote from '@tiptap/extension-blockquote';
 import Code from '@tiptap/extension-code';
+import HardBreak from '@tiptap/extension-hard-break';
 import HorizontalRule from '@tiptap/extension-horizontal-rule';
 import { cn } from '@/lib/utils';
 import type { CollectionField, Collection } from '@/types';
@@ -127,6 +128,23 @@ export interface RichTextEditorHandle {
 }
 
 export type { FieldVariable } from '@/types';
+
+/**
+ * Rename legacy `image` nodes to `richTextImage` so migrated docs render in the
+ * editor. The new schema only registers `richTextImage`; unknown node types are
+ * silently dropped on load.
+ */
+function normalizeLegacyTiptapDoc<T>(doc: T): T {
+  if (!doc || typeof doc !== 'object') return doc;
+  const node = doc as any;
+  if (node.type === 'image') {
+    node.type = 'richTextImage';
+  }
+  if (Array.isArray(node.content)) {
+    node.content.forEach((child: any) => normalizeLegacyTiptapDoc(child));
+  }
+  return doc;
+}
 
 /**
  * DynamicVariable with React node view for the sidebar rich-text editor.
@@ -451,6 +469,7 @@ const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorProps>(({
       Document,
       Paragraph,
       Text,
+      HardBreak,
       History,
       DynamicVariableWithNodeView,
       DynamicStyle,
@@ -520,12 +539,12 @@ const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorProps>(({
       if (withFormatting) {
         // For formatting mode, expect TipTap JSON
         if (typeof value === 'object' && value !== null) {
-          return value;
+          return normalizeLegacyTiptapDoc(value);
         }
         // Try to parse JSON string (in case DB returned stringified JSON)
         if (typeof value === 'string' && value.startsWith('{')) {
           try {
-            return JSON.parse(value);
+            return normalizeLegacyTiptapDoc(JSON.parse(value));
           } catch {
             // Not valid JSON, fall through
           }
@@ -543,7 +562,12 @@ const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorProps>(({
     editorProps: {
       attributes: {
         class: cn(
-          'w-full min-w-0 border border-transparent bg-input transition-[color,box-shadow] outline-none rounded-lg flex flex-col gap-3',
+          'w-full min-w-0 border border-transparent bg-input transition-[color,box-shadow] outline-none rounded-lg flex flex-col',
+          // Full variant gets `gap-3` for doc-style paragraph spacing; compact
+          // variant (sidebar inputs / translation rows) matches the canvas,
+          // which flattens multi-paragraph simple-text content into one
+          // paragraph with line breaks — no inter-paragraph gap.
+          isFullVariant && 'gap-3',
           'focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[0px]',
           'disabled:cursor-not-allowed disabled:opacity-50',
           'rich-text-editor',
@@ -683,6 +707,33 @@ const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorProps>(({
       hasChanged = currentValue !== value;
     }
 
+    // Walk a Tiptap doc and replace `attrs.label` on every `dynamicVariable` node
+    // with the live label resolved from current fields. The stored label is only a
+    // fallback so the chip stays accurate even when field names change.
+    const refreshNodeLabels = (content: any[]): { content: any[]; updated: boolean } => {
+      let updated = false;
+      const walked = content.map((node: any) => {
+        if (node.type === 'dynamicVariable' && node.attrs?.variable) {
+          const variable = node.attrs.variable;
+          if (variable.type === 'field' && variable.data?.field_id) {
+            const newLabel = getVariableLabel(variable, fields, allFields);
+            if (newLabel && node.attrs.label !== newLabel) {
+              updated = true;
+              return { ...node, attrs: { ...node.attrs, label: newLabel } };
+            }
+          }
+        } else if (node.content) {
+          const childResult = refreshNodeLabels(node.content);
+          if (childResult.updated) {
+            updated = true;
+            return { ...node, content: childResult.content };
+          }
+        }
+        return node;
+      });
+      return { content: walked, updated };
+    };
+
     if (hasChanged) {
       // Check if editor was focused before updating content
       const wasFocused = editor.isFocused;
@@ -702,6 +753,14 @@ const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorProps>(({
       } else {
         content = parseValueToContent(typeof value === 'string' ? value : '', fields, undefined, allFields);
       }
+      // Refresh cached labels on initial set as well — the stored value may have
+      // stale labels from migrations or older edits.
+      if (fields && content?.content) {
+        const refreshed = refreshNodeLabels(content.content);
+        if (refreshed.updated) {
+          content = { ...content, content: refreshed.content };
+        }
+      }
       editor.commands.setContent(content);
 
       // Reset internal update flag — setContent triggers onUpdate synchronously
@@ -714,41 +773,12 @@ const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorProps>(({
         setTimeout(() => { editor.commands.focus('end'); }, 0);
       }
     } else if (fields) {
-      // Update labels for existing nodes when fields change
+      // Update labels for existing nodes when fields change without a value change
       const json = editor.getJSON();
-      let updated = false;
-
-      const updateNodeLabels = (content: any[]): any[] => {
-        return content.map((node: any) => {
-          if (node.type === 'dynamicVariable' && node.attrs?.variable) {
-            const variable = node.attrs.variable;
-            if (variable.type === 'field' && variable.data?.field_id) {
-              const newLabel = getVariableLabel(variable, fields, allFields);
-              if (node.attrs.label !== newLabel) {
-                updated = true;
-                return {
-                  ...node,
-                  attrs: {
-                    ...node.attrs,
-                    label: newLabel,
-                  },
-                };
-              }
-            }
-          } else if (node.content) {
-            return {
-              ...node,
-              content: updateNodeLabels(node.content),
-            };
-          }
-          return node;
-        });
-      };
-
       if (json.content) {
-        const updatedContent = updateNodeLabels(json.content);
-        if (updated) {
-          editor.commands.setContent({ ...json, content: updatedContent });
+        const refreshed = refreshNodeLabels(json.content);
+        if (refreshed.updated) {
+          editor.commands.setContent({ ...json, content: refreshed.content });
           isInternalUpdateRef.current = false;
         }
       }
