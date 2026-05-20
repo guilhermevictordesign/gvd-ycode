@@ -67,8 +67,11 @@ export function cleanSvgContent(svgContent: string): string {
     .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
     .replace(/\son\w+\s*=\s*["'][^"']*["']/gi, ''); // Remove event handlers like onclick, onload, etc.
 
-  // Remove potentially dangerous tags
-  const dangerousTags = ['script', 'iframe', 'embed', 'object', 'link', 'style'];
+  // Remove potentially dangerous tags. `<style>` is safe inside SVG (CSS can't
+  // execute code) and is commonly used to define class-based fills (e.g.
+  // `.cls-1 { fill: #5d5d5d; }` from Illustrator exports) — stripping it would
+  // leave path classes referencing nothing and the SVG would render all-black.
+  const dangerousTags = ['script', 'iframe', 'embed', 'object', 'link'];
   dangerousTags.forEach(tag => {
     const regex = new RegExp(`<${tag}\\b[^<]*(?:(?!<\\/${tag}>)<[^<]*)*<\\/${tag}>`, 'gi');
     cleaned = cleaned.replace(regex, '');

@@ -12,6 +12,7 @@ import type { AssetVariable, FieldVariable, DynamicTextVariable, DynamicRichText
 import { resolveInlineVariablesFromData } from '@/lib/inline-variables';
 import { resolveFieldFromSources } from '@/lib/cms-variables-utils';
 import { DEFAULT_ASSETS } from '@/lib/asset-constants';
+import { buildSvgDataUrl } from '@/lib/asset-utils';
 import { stringToTiptapContent } from '@/lib/text-format-utils';
 
 /** Canonical empty componentOverrides structure — use when setting/resetting overrides */
@@ -283,7 +284,7 @@ export function getVariableStringValue(
  */
 export function getImageUrlFromVariable(
   src: AssetVariable | FieldVariable | DynamicTextVariable | undefined | null,
-  getAsset?: (id: string) => { public_url: string | null; content?: string | null } | null,
+  getAsset?: (id: string) => { public_url: string | null; content?: string | null; width?: number | null; height?: number | null } | null,
   collectionItemData?: Record<string, string>,
   pageCollectionItemData?: Record<string, string> | null,
   useDefault: boolean = true
@@ -305,8 +306,7 @@ export function getImageUrlFromVariable(
       return asset.public_url;
     }
     if (asset?.content) {
-      // Convert inline SVG content to data URL
-      return `data:image/svg+xml,${encodeURIComponent(asset.content)}`;
+      return buildSvgDataUrl(asset.content, asset.width, asset.height);
     }
     return undefined;
   }
@@ -331,7 +331,7 @@ export function getImageUrlFromVariable(
         return asset.public_url;
       }
       if (asset?.content) {
-        return `data:image/svg+xml,${encodeURIComponent(asset.content)}`;
+        return buildSvgDataUrl(asset.content, asset.width, asset.height);
       }
     }
 

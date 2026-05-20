@@ -502,7 +502,7 @@ export default async function PageRenderer({
     const candidateAsset = resolvedAssetsWithMime[lcpCandidate.assetId];
     if (candidateAsset?.url) {
       lcpPreloadSrc = getOptimizedImageUrl(candidateAsset.url, 1920, 85);
-      lcpPreloadSrcset = generateImageSrcset(candidateAsset.url) || null;
+      lcpPreloadSrcset = generateImageSrcset(candidateAsset.url, undefined, undefined, candidateAsset.width) || null;
       lcpPreloadSizes = candidateAsset.width
         ? `(max-width: 768px) 100vw, ${candidateAsset.width}px`
         : getImageSizes();

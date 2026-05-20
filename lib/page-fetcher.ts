@@ -10,7 +10,7 @@ import { enrichItemsWithCountValues } from '@/lib/repositories/collectionCountRe
 import type { Page, PageFolder, PageLayers, Component, ComponentVariable, CollectionItemWithValues, CollectionField, Layer, CollectionPaginationMeta, Translation, Locale } from '@/types';
 import { getCollectionVariable, resolveFieldValue, evaluateVisibility, getLayerHtmlTag, filterDisabledSliderLayers } from '@/lib/layer-utils';
 import { isFieldVariable, isAssetVariable, createDynamicTextVariable, createDynamicRichTextVariable, createAssetVariable, getDynamicTextContent, getVariableStringValue, getAssetId, resolveDesignStyles } from '@/lib/variable-utils';
-import { generateImageSrcset, getImageSizes, getOptimizedImageUrl, getAssetProxyUrl, DEFAULT_ASSETS, collectLayerAssetIds } from '@/lib/asset-utils';
+import { generateImageSrcset, getImageSizes, getOptimizedImageUrl, getAssetProxyUrl, DEFAULT_ASSETS, collectLayerAssetIds, buildSvgDataUrl } from '@/lib/asset-utils';
 import { resolveComponents, applyComponentOverrides } from '@/lib/resolve-components';
 import { getComponentVariantLayers } from '@/lib/component-variant-utils';
 import { isTiptapDoc, hasBlockElementsWithResolver } from '@/lib/tiptap-utils';
@@ -3516,7 +3516,7 @@ function resolveLayerAssets(
       if (asset?.public_url) {
         resolvedUrl = asset.public_url;
       } else if (asset?.content) {
-        resolvedUrl = `data:image/svg+xml,${encodeURIComponent(asset.content)}`;
+        resolvedUrl = buildSvgDataUrl(asset.content, asset.width, asset.height);
       }
       variableUpdates.image = {
         src: createDynamicTextVariable(resolvedUrl),
@@ -3573,7 +3573,7 @@ function resolveLayerAssets(
       if (asset?.public_url) {
         resolvedUrl = asset.public_url;
       } else if (asset?.content) {
-        resolvedUrl = `data:image/svg+xml,${encodeURIComponent(asset.content)}`;
+        resolvedUrl = buildSvgDataUrl(asset.content, asset.width, asset.height);
       }
     } else {
       resolvedUrl = DEFAULT_ASSETS.IMAGE;
@@ -4171,15 +4171,30 @@ function layerToHtml(
       } else if (imageSrc.type === 'asset') {
         resolvedSrcValue = undefined;
       }
-      if (resolvedSrcValue && resolvedSrcValue.trim()) {
-        const optimizedSrc = getOptimizedImageUrl(resolvedSrcValue, 1920, 85);
-        attrs.push(`src="${escapeHtml(optimizedSrc)}"`);
+    }
 
-        const srcset = generateImageSrcset(resolvedSrcValue);
-        if (srcset) {
-          attrs.push(`srcset="${escapeHtml(srcset)}"`);
-          attrs.push(`sizes="${escapeHtml(getImageSizes())}"`);
-        }
+    // Resolve intrinsic width/height up front: needed both for the width/
+    // height attributes (CLS prevention) and to cap srcset descriptors so
+    // they don't exceed the source's natural size.
+    let imgWidth = layer.attributes?.width as string | undefined;
+    let imgHeight = layer.attributes?.height as string | undefined;
+    if ((!imgWidth || !imgHeight) && resolvedSrcValue && assetMap) {
+      const matchedAsset = Object.values(assetMap).find(a => a.public_url === resolvedSrcValue);
+      if (matchedAsset?.width && matchedAsset?.height) {
+        if (!imgWidth) imgWidth = String(matchedAsset.width);
+        if (!imgHeight) imgHeight = String(matchedAsset.height);
+      }
+    }
+
+    if (resolvedSrcValue && resolvedSrcValue.trim()) {
+      const optimizedSrc = getOptimizedImageUrl(resolvedSrcValue, 1920, 85);
+      attrs.push(`src="${escapeHtml(optimizedSrc)}"`);
+
+      const intrinsicWidthForSrcset = imgWidth ? parseInt(imgWidth, 10) : null;
+      const srcset = generateImageSrcset(resolvedSrcValue, undefined, undefined, intrinsicWidthForSrcset);
+      if (srcset) {
+        attrs.push(`srcset="${escapeHtml(srcset)}"`);
+        attrs.push(`sizes="${escapeHtml(getImageSizes())}"`);
       }
     }
     attrs.push('data-layer-type="image"');
@@ -4190,16 +4205,6 @@ function layerToHtml(
       attrs.push(`alt="${escapeHtml(resolvedAlt)}"`);
     }
 
-    // Set width/height from explicit attributes or intrinsic asset dimensions (prevents CLS)
-    let imgWidth = layer.attributes?.width as string | undefined;
-    let imgHeight = layer.attributes?.height as string | undefined;
-    if ((!imgWidth || !imgHeight) && resolvedSrcValue && assetMap) {
-      const matchedAsset = Object.values(assetMap).find(a => a.public_url === resolvedSrcValue);
-      if (matchedAsset?.width && matchedAsset?.height) {
-        if (!imgWidth) imgWidth = String(matchedAsset.width);
-        if (!imgHeight) imgHeight = String(matchedAsset.height);
-      }
-    }
     if (imgWidth) attrs.push(`width="${escapeHtml(imgWidth)}"`);
     if (imgHeight) attrs.push(`height="${escapeHtml(imgHeight)}"`);
 

@@ -1616,12 +1616,30 @@ const LayerItemImpl: React.FC<{
   // because it treats font-size as overriding line-height. Our own
   // setBreakpointClass already handles property-aware conflict resolution.
 
-  // <a> with display:flex is block-level (full width) unlike <button> which
-  // shrink-wraps. Add w-fit to match button sizing unless width is explicit.
+  // `<button>` defaults to `display: inline-block` (shrink-wraps) and
+  // `text-align: center`, while `<a>` defaults to `display: inline` and inherits
+  // text-align (typically left). When a button-with-link is rendered as `<a>`,
+  // re-apply those button defaults so layout matches:
+  // - `w-fit`: only if no explicit width or block-level display class is set,
+  //   since those make the element block-level (full width) on purpose.
+  // - `text-center`: only if no explicit text-align class is set.
+  const BLOCK_DISPLAY_CLASSES = new Set([
+    'flex', 'block', 'grid', 'table', 'flow-root',
+  ]);
+  const TEXT_ALIGN_CLASSES = new Set([
+    'text-left', 'text-center', 'text-right', 'text-justify', 'text-start', 'text-end',
+  ]);
+  const layerClassList = isButtonWithLink
+    ? (Array.isArray(layer.classes) ? layer.classes : (layer.classes || '').split(' '))
+    : [];
   const buttonNeedsFit = isButtonWithLink && (() => {
-    const cls = Array.isArray(layer.classes) ? layer.classes : (layer.classes || '').split(' ');
-    return !cls.some((c: string) => /^w-/.test(c.split(':').pop() || ''));
+    const hasWidth = layerClassList.some((c: string) => /^w-/.test(c.split(':').pop() || ''));
+    if (hasWidth) return false;
+    const hasBlockDisplay = layerClassList.some((c: string) => BLOCK_DISPLAY_CLASSES.has(c.split(':').pop() || ''));
+    return !hasBlockDisplay;
   })();
+  const buttonNeedsTextCenter = isButtonWithLink
+    && !layerClassList.some((c: string) => TEXT_ALIGN_CLASSES.has(c.split(':').pop() || ''));
 
   const fullClassName = isEditMode ? clsx(
     classesString,
@@ -1629,12 +1647,13 @@ const LayerItemImpl: React.FC<{
     SWIPER_CLASS_MAP[layer.name],
     isSlideChild && 'swiper-slide',
     buttonNeedsFit && 'w-fit',
+    buttonNeedsTextCenter && 'text-center',
     enableDragDrop && !isEditing && !isLockedByOther && 'cursor-default',
     isDragging && 'opacity-30',
     showProjection && 'outline outline-1 outline-dashed outline-blue-400 bg-blue-50/10',
     isLockedByOther && 'opacity-90 pointer-events-none select-none',
     'ycode-layer'
-  ) : clsx(classesString, paragraphClasses, SWIPER_CLASS_MAP[layer.name], isSlideChild && 'swiper-slide', buttonNeedsFit && 'w-fit');
+  ) : clsx(classesString, paragraphClasses, SWIPER_CLASS_MAP[layer.name], isSlideChild && 'swiper-slide', buttonNeedsFit && 'w-fit', buttonNeedsTextCenter && 'text-center');
 
   // Check if layer should be hidden (hide completely in both edit mode and public pages)
   if (layer.settings?.hidden) {
@@ -2179,7 +2198,6 @@ const LayerItemImpl: React.FC<{
       const effectiveLoading = isLcpCandidate ? 'eager' : imgLoadingAttr;
 
       const optimizedSrc = getOptimizedImageUrl(finalImageUrl, 1920, 85);
-      const srcset = generateImageSrcset(finalImageUrl);
 
       // Prefer an explicit `sizes` attribute. Otherwise, if we have an
       // intrinsic pixel width, emit a media-aware sizes string so browsers
@@ -2191,6 +2209,12 @@ const LayerItemImpl: React.FC<{
         : null;
       const sizes = explicitSizes
         || (widthForSizes ? `(max-width: 768px) 100vw, ${widthForSizes}px` : getImageSizes());
+
+      // Pass intrinsic width so srcset descriptors don't exceed the source's
+      // natural size (the proxy won't upscale; mismatched descriptors break
+      // browser intrinsic-dimension math and shrink the rendered image).
+      const intrinsicWidthForSrcset = widthForSizes ? parseInt(widthForSizes, 10) : null;
+      const srcset = generateImageSrcset(finalImageUrl, undefined, undefined, intrinsicWidthForSrcset);
 
       const imageProps: Record<string, any> = {
         ...elementProps,

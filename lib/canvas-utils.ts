@@ -261,7 +261,7 @@ export function getCanvasIframeHtml(mountId: string = 'canvas-mount'): string {
       background-size: 16px 16px !important;
     }
   </style>
-  <link rel="stylesheet" href="/canvas.css?v=0.2.1.1">
+  <link rel="stylesheet" href="/canvas.css?v=0.2.1.4">
   <style id="ycode-viewport-overrides">
     /* Dynamically populated: overrides vh/svh/dvh/lvh with fixed px values */
   </style>
