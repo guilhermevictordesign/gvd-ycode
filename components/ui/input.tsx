@@ -8,6 +8,13 @@ interface InputProps extends Omit<React.ComponentProps<'input'>, 'size'> {
   variant?: 'default' | 'rename' | 'rename-selected';
   stepper?: boolean;
   onStepperChange?: (value: string) => void;
+  /**
+   * Disable the implicit ArrowUp/ArrowDown numeric-stepping behavior.
+   * Use for text-only inputs (e.g. search fields) where pressing arrow keys
+   * should be left to the parent for navigation/highlighting instead of
+   * incrementing the value.
+   */
+  disableKeyboardStep?: boolean;
 }
 
 const Input = React.forwardRef<HTMLInputElement, InputProps>(function Input({
@@ -20,6 +27,7 @@ const Input = React.forwardRef<HTMLInputElement, InputProps>(function Input({
   onChange,
   stepper = false,
   onStepperChange,
+  disableKeyboardStep = false,
   min,
   max,
   step = '1',
@@ -34,7 +42,7 @@ const Input = React.forwardRef<HTMLInputElement, InputProps>(function Input({
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     // Only handle arrow keys for numeric inputs
-    if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+    if (!disableKeyboardStep && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
       const currentValue = typeof value === 'string' ? value : String(value || '');
 
       // Check if the value is a valid number or empty (treat empty as 0)

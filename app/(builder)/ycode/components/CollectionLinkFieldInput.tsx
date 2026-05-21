@@ -7,7 +7,7 @@
  * Supports URL, Page, and Asset link types.
  */
 
-import React, { useState, useCallback, useMemo, useEffect } from 'react';
+import React, { useCallback, useMemo, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
@@ -20,15 +20,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import type { CollectionLinkValue, CollectionLinkType, CollectionItemWithValues } from '@/types';
+import type { CollectionLinkValue, CollectionLinkType } from '@/types';
 import { usePagesStore } from '@/stores/usePagesStore';
-import { useCollectionsStore } from '@/stores/useCollectionsStore';
 import { useEditorStore } from '@/stores/useEditorStore';
 import { useAssetsStore } from '@/stores/useAssetsStore';
-import { collectionsApi } from '@/lib/api';
 import { getAssetIcon } from '@/lib/asset-utils';
 import { findLayersWithAnchorId } from '@/lib/layer-utils';
 import { getLayerIcon, getLayerName } from '@/lib/layer-display-utils';
+import LinkCollectionItemPicker from './LinkCollectionItemPicker';
 import PageSelector from './PageSelector';
 
 interface CollectionLinkFieldInputProps {
@@ -73,15 +72,10 @@ export default function CollectionLinkFieldInput({
   onChange,
   disabled = false,
 }: CollectionLinkFieldInputProps) {
-  const [collectionItems, setCollectionItems] = useState<CollectionItemWithValues[]>([]);
-  const [loadingItems, setLoadingItems] = useState(false);
-  const [collectionItemSearch, setCollectionItemSearch] = useState('');
-
   // Stores
   const pages = usePagesStore((state) => state.pages);
   const draftsByPageId = usePagesStore((state) => state.draftsByPageId);
   const loadDraft = usePagesStore((state) => state.loadDraft);
-  const { fields: collectionsFields } = useCollectionsStore();
   const openFileManager = useEditorStore((state) => state.openFileManager);
   const getAsset = useAssetsStore((state) => state.getAsset);
 
@@ -125,55 +119,10 @@ export default function CollectionLinkFieldInput({
   // Check if selected page is dynamic
   const isDynamicPage = selectedPage?.is_dynamic || false;
   const pageCollectionId = selectedPage?.settings?.cms?.collection_id || null;
+  const collectionPickerId = isDynamicPage ? pageCollectionId : null;
 
-  // Get slug field for the collection
+  // Slug field used as a label fallback when the item has no `name` value
   const slugFieldId = selectedPage?.settings?.cms?.slug_field_id || null;
-  const collectionFields = pageCollectionId ? collectionsFields[pageCollectionId] || [] : [];
-  const nameField = collectionFields.find((f) => f.key === 'name');
-
-  // Load collection items when dynamic page is selected
-  useEffect(() => {
-    if (!pageCollectionId || !isDynamicPage) {
-      setCollectionItems([]);
-      return;
-    }
-
-    const loadItems = async () => {
-      setLoadingItems(true);
-      try {
-        const response = await collectionsApi.getItems(pageCollectionId);
-        if (response.data) {
-          setCollectionItems(response.data.items || []);
-        }
-      } catch (error) {
-        console.error('Failed to load collection items:', error);
-      } finally {
-        setLoadingItems(false);
-      }
-    };
-
-    loadItems();
-  }, [pageCollectionId, isDynamicPage]);
-
-  // Get display name for collection item
-  const getItemDisplayName = useCallback((itemId: string): string => {
-    const item = collectionItems.find((i) => i.id === itemId);
-    if (!item) return itemId;
-
-    // Try name field first
-    if (nameField && item.values[nameField.id]) {
-      return item.values[nameField.id];
-    }
-
-    // Try slug field
-    if (slugFieldId && item.values[slugFieldId]) {
-      return item.values[slugFieldId];
-    }
-
-    // Fallback to first value
-    const firstValue = Object.values(item.values)[0];
-    return firstValue || itemId;
-  }, [collectionItems, nameField, slugFieldId]);
 
   // Update link value helper
   const updateLinkValue = useCallback(
@@ -379,49 +328,13 @@ export default function CollectionLinkFieldInput({
             <div className="flex-1 min-w-0">
               <div className="flex flex-col gap-1.5">
                 <Label className="text-xs text-muted-foreground">CMS item</Label>
-                <Select
-                  value={collectionItemId || ''}
-                  onValueChange={(value) => {
-                    handleCollectionItemChange(value);
-                    setCollectionItemSearch('');
-                  }}
-                  onOpenChange={(open) => {
-                    if (!open) setCollectionItemSearch('');
-                  }}
-                  disabled={disabled || loadingItems}
-                >
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder={loadingItems ? 'Loading...' : 'Select...'} />
-                  </SelectTrigger>
-                  <SelectContent
-                    searchable
-                    searchValue={collectionItemSearch}
-                    onSearchChange={setCollectionItemSearch}
-                    searchPlaceholder="Search items..."
-                    className="w-72"
-                  >
-                    {(() => {
-                      const query = collectionItemSearch.trim().toLowerCase();
-                      const filtered = query
-                        ? collectionItems.filter(item =>
-                          getItemDisplayName(item.id).toLowerCase().includes(query)
-                        )
-                        : collectionItems;
-                      if (filtered.length === 0) {
-                        return (
-                          <div className="px-2 py-4 text-center text-xs text-muted-foreground">
-                            {query ? 'No items found' : 'No items available'}
-                          </div>
-                        );
-                      }
-                      return filtered.map((item) => (
-                        <SelectItem key={item.id} value={item.id}>
-                          {getItemDisplayName(item.id)}
-                        </SelectItem>
-                      ));
-                    })()}
-                  </SelectContent>
-                </Select>
+                <LinkCollectionItemPicker
+                  collectionId={collectionPickerId}
+                  value={collectionItemId}
+                  onChange={handleCollectionItemChange}
+                  slugFieldId={slugFieldId}
+                  disabled={disabled}
+                />
               </div>
             </div>
           )}

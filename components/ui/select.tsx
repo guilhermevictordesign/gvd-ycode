@@ -120,6 +120,11 @@ function SelectContent({
 }) {
   const searchInputRef = React.useRef<HTMLInputElement>(null);
   const isSearchFocusedRef = React.useRef(false);
+  // Timestamp of the last keyboard-navigation key on the search input.
+  // Used to distinguish a user-initiated focus transfer to an item (arrow
+  // keys) from a programmatic one (e.g. Radix re-focusing after items
+  // re-render when search results stream in).
+  const lastNavKeyAtRef = React.useRef(0);
 
   return (
     <SelectPrimitive.Portal>
@@ -149,9 +154,34 @@ function SelectContent({
                 placeholder={searchPlaceholder || 'Search...'}
                 value={searchValue}
                 onChange={(e) => onSearchChange?.(e.target.value)}
-                onKeyDown={(e) => e.stopPropagation()}
+                disableKeyboardStep
+                onKeyDown={(e) => {
+                  // Let arrow keys / Enter / Escape bubble up so Radix can
+                  // move the highlighted item and confirm selection; stop
+                  // everything else from hijacking the Select's typeahead.
+                  if (
+                    e.key === 'ArrowUp' ||
+                    e.key === 'ArrowDown' ||
+                    e.key === 'Home' ||
+                    e.key === 'End' ||
+                    e.key === 'PageUp' ||
+                    e.key === 'PageDown'
+                  ) {
+                    lastNavKeyAtRef.current = Date.now();
+                  } else if (e.key !== 'Enter' && e.key !== 'Escape') {
+                    e.stopPropagation();
+                  }
+                }}
                 onFocus={() => { isSearchFocusedRef.current = true; }}
-                onBlur={() => {
+                onBlur={(e) => {
+                  // Only allow focus transfer to an item when the user just
+                  // pressed a navigation key. Otherwise (e.g. Radix
+                  // re-focusing after the items list updates as search
+                  // results stream in) refocus the search input so typing
+                  // is uninterrupted.
+                  const next = e.relatedTarget as HTMLElement | null;
+                  const isUserNav = Date.now() - lastNavKeyAtRef.current < 150;
+                  if (isUserNav && next?.closest('[role="option"]')) return;
                   requestAnimationFrame(() => {
                     if (isSearchFocusedRef.current) {
                       searchInputRef.current?.focus();

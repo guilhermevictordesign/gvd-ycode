@@ -20,13 +20,54 @@ interface CollectionItemSelectOptionsProps {
   collectionFields: CollectionField[];
   /** Optional search string to filter visible options by their display label */
   searchValue?: string;
+  /** When true, a debounced server search is in flight; show a loading state instead of "No items" */
+  isSearching?: boolean;
+  /** Optional slug field id used as a label fallback after the `name` field */
+  slugFieldId?: string | null;
 }
 
-function getDisplayName(item: CollectionItemWithValues, collectionFields: CollectionField[]): string {
+/**
+ * Resolve a CMS item's display label using its `name` field, then an optional
+ * `slug` field, then the first stored value, then the raw id. Exported so the
+ * link selectors can render the trigger label even when the selected item is
+ * filtered out of the visible list.
+ */
+export function getCollectionItemDisplayName(
+  item: CollectionItemWithValues,
+  collectionFields: CollectionField[],
+  slugFieldId?: string | null
+): string {
   const nameField = collectionFields.find(f => f.key === 'name');
   if (nameField && item.values[nameField.id]) return item.values[nameField.id];
+  if (slugFieldId && item.values[slugFieldId]) return item.values[slugFieldId];
   const values = Object.values(item.values);
   return values[0] || item.id;
+}
+
+/**
+ * Resolve the trigger label for any value the CMS item picker can hold:
+ * concrete item ids, dynamic-resolution keywords, or reference-field options.
+ * Returns null when the value cannot be resolved (e.g. unknown id).
+ */
+export function resolveCollectionItemSelectLabel(
+  value: string | null | undefined,
+  collectionItems: CollectionItemWithValues[],
+  collectionFields: CollectionField[],
+  referenceItemOptions: ReferenceItemOption[],
+  slugFieldId?: string | null
+): string | null {
+  if (!value) return null;
+  switch (value) {
+    case COLLECTION_ITEM_KEYWORDS.CURRENT_PAGE: return 'Current page item';
+    case COLLECTION_ITEM_KEYWORDS.CURRENT_COLLECTION: return 'Current collection item';
+    case COLLECTION_ITEM_KEYWORDS.PREVIOUS_ITEM: return 'Previous item';
+    case COLLECTION_ITEM_KEYWORDS.NEXT_ITEM: return 'Next item';
+  }
+  const refOption = referenceItemOptions.find(opt => opt.value === value);
+  if (refOption) return refOption.label;
+  const item = collectionItems.find(i => i.id === value);
+  if (item) return getCollectionItemDisplayName(item, collectionFields, slugFieldId);
+  return null;
 }
 
 /**
@@ -46,6 +87,8 @@ export default function LinkItemOptions({
   collectionItems,
   collectionFields,
   searchValue,
+  isSearching = false,
+  slugFieldId,
 }: CollectionItemSelectOptionsProps) {
   const query = searchValue?.trim().toLowerCase() ?? '';
   const matches = (label: string) => !query || label.toLowerCase().includes(query);
@@ -55,7 +98,7 @@ export default function LinkItemOptions({
   const showPreviousItem = canUseNextPreviousItem && matches('Previous item');
   const showNextItem = canUseNextPreviousItem && matches('Next item');
   const filteredReferenceOptions = referenceItemOptions.filter(opt => matches(opt.label));
-  const filteredItems = collectionItems.filter(item => matches(getDisplayName(item, collectionFields)));
+  const filteredItems = collectionItems.filter(item => matches(getCollectionItemDisplayName(item, collectionFields, slugFieldId)));
 
   const hasSpecialOptions =
     showCurrentPageItem ||
@@ -65,10 +108,10 @@ export default function LinkItemOptions({
     filteredReferenceOptions.length > 0;
   const hasAnyResults = hasSpecialOptions || filteredItems.length > 0;
 
-  if (!hasAnyResults && query) {
+  if (!hasAnyResults) {
     return (
       <div className="px-2 py-4 text-center text-xs text-muted-foreground">
-        No items found
+        {isSearching ? 'Searching...' : (query ? 'No items found' : 'No items available')}
       </div>
     );
   }
@@ -103,7 +146,7 @@ export default function LinkItemOptions({
       {hasSpecialOptions && filteredItems.length > 0 && <SelectSeparator />}
       {filteredItems.map((item) => (
         <SelectItem key={item.id} value={item.id}>
-          {getDisplayName(item, collectionFields)}
+          {getCollectionItemDisplayName(item, collectionFields, slugFieldId)}
         </SelectItem>
       ))}
     </>

@@ -54,6 +54,7 @@ interface CollectionsActions {
   loadPublishedItems: (collectionId: string) => Promise<void>;
   getDropdownItems: (collectionId: string) => Promise<Array<{ id: string; label: string }>>;
   searchAndMergeItems: (collectionId: string, query: string, limit?: number) => Promise<Array<{ id: string; label: string }>>;
+  ensureItemLoaded: (collectionId: string, itemId: string) => Promise<void>;
   createItem: (collectionId: string, values: Record<string, any>, statusAction?: StatusAction) => Promise<CollectionItemWithValues>;
   updateItem: (collectionId: string, itemId: string, values: Record<string, any>) => Promise<void>;
   deleteItem: (collectionId: string, itemId: string) => Promise<void>;
@@ -1266,6 +1267,31 @@ export const useCollectionsStore = create<CollectionsStore>((set, get) => ({
     } catch (error) {
       console.error('Failed to search collection items:', error);
       return [];
+    }
+  },
+
+  ensureItemLoaded: async (collectionId: string, itemId: string) => {
+    if (!collectionId || !itemId) return;
+    const existing = get().items[collectionId] || [];
+    if (existing.some(item => item.id === itemId)) return;
+
+    try {
+      const response = await collectionsApi.getItemById(collectionId, itemId);
+      if (response.error || !response.data) return;
+      const item = response.data;
+
+      set(state => {
+        const current = state.items[collectionId] || [];
+        if (current.some(i => i.id === item.id)) return state;
+        return {
+          items: {
+            ...state.items,
+            [collectionId]: [...current, item],
+          },
+        };
+      });
+    } catch (error) {
+      console.error('Failed to hydrate collection item:', error);
     }
   },
 }));

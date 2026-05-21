@@ -7,7 +7,7 @@
  * Can also be used in standalone mode for component variables.
  */
 
-import React, { useState, useCallback, useMemo, useEffect } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
@@ -18,7 +18,7 @@ import SettingsPanel from './SettingsPanel';
 import RichTextEditor from './RichTextEditor';
 import { filterFieldGroupsByType, flattenFieldGroups, LINK_FIELD_TYPES, buildReferenceItemOptions } from '@/lib/collection-field-utils';
 import { generateLinkHref } from '@/lib/link-utils';
-import LinkItemOptions from './LinkItemOptions';
+import LinkCollectionItemPicker from './LinkCollectionItemPicker';
 import { FieldSelectDropdown, type FieldGroup, type FieldSourceType } from './CollectionFieldSelector';
 import ComponentVariableLabel, { VARIABLE_TYPE_ICONS } from './ComponentVariableLabel';
 import {
@@ -29,19 +29,18 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import type { Layer, CollectionField, Collection, Page, LinkSettings as LinkSettingsType, LinkType, CollectionItemWithValues, LinkSettingsValue } from '@/types';
+import type { Layer, CollectionField, Collection, Page, LinkSettings as LinkSettingsType, LinkType, LinkSettingsValue } from '@/types';
 import {
   createDynamicTextVariable,
   getDynamicTextContent,
 } from '@/lib/variable-utils';
 import { usePagesStore } from '@/stores/usePagesStore';
-import { useCollectionsStore } from '@/stores/useCollectionsStore';
 import { useAssetsStore } from '@/stores/useAssetsStore';
 import { useEditorStore } from '@/stores/useEditorStore';
 import { useComponentsStore } from '@/stores/useComponentsStore';
 import { ASSET_CATEGORIES, getAssetIcon } from '@/lib/asset-utils';
 import { toast } from 'sonner';
-import { collectionsApi, pagesApi } from '@/lib/api';
+import { pagesApi } from '@/lib/api';
 import { canLayerHaveLink, getCollectionVariable, findLayersWithAnchorId } from '@/lib/layer-utils';
 import { getLayerIcon, getLayerName } from '@/lib/layer-display-utils';
 import { Empty, EmptyDescription, EmptyTitle } from '@/components/ui/empty';
@@ -117,9 +116,6 @@ export default function LinkSettings(props: LinkSettingsProps) {
   const standaloneOnChange = isStandaloneMode ? props.onChange : undefined;
 
   const [isOpen, setIsOpen] = useState(true);
-  const [collectionItems, setCollectionItems] = useState<CollectionItemWithValues[]>([]);
-  const [loadingItems, setLoadingItems] = useState(false);
-  const [collectionItemSearch, setCollectionItemSearch] = useState('');
 
   // Stores
   const pages = usePagesStore((state) => state.pages);
@@ -128,7 +124,6 @@ export default function LinkSettings(props: LinkSettingsProps) {
   const openFileManager = useEditorStore((state) => state.openFileManager);
   const editingComponentId = useEditorStore((state) => state.editingComponentId);
   const getAsset = useAssetsStore((state) => state.getAsset);
-  const collectionsStoreFields = useCollectionsStore((state) => state.fields);
   const getComponentById = useComponentsStore((state) => state.getComponentById);
   const addLinkVariable = useComponentsStore((state) => state.addLinkVariable);
   const updateTextVariable = useComponentsStore((state) => state.updateTextVariable);
@@ -258,29 +253,7 @@ export default function LinkSettings(props: LinkSettingsProps) {
   // Get collection ID from dynamic page settings
   const pageCollectionId = selectedPage?.settings?.cms?.collection_id || null;
 
-  // Load collection items when dynamic page is selected
-  useEffect(() => {
-    if (!pageCollectionId || !isDynamicPage) {
-      setCollectionItems([]);
-      return;
-    }
-
-    const loadItems = async () => {
-      setLoadingItems(true);
-      try {
-        const response = await collectionsApi.getItems(pageCollectionId);
-        if (response.data) {
-          setCollectionItems(response.data.items || []);
-        }
-      } catch (error) {
-        console.error('Failed to load collection items:', error);
-      } finally {
-        setLoadingItems(false);
-      }
-    };
-
-    loadItems();
-  }, [pageCollectionId, isDynamicPage]);
+  const collectionPickerId = isDynamicPage ? pageCollectionId : null;
 
   // Check if link settings should be disabled due to nesting restrictions
   const linkNestingIssue = useMemo(() => {
@@ -636,12 +609,6 @@ export default function LinkSettings(props: LinkSettingsProps) {
   // Get asset info for display
   const selectedAsset = assetId ? getAsset(assetId) : null;
 
-  // Fields for the linked page's collection (for display names)
-  const linkedPageCollectionFields = useMemo(
-    () => pageCollectionId ? collectionsStoreFields[pageCollectionId] || [] : [],
-    [pageCollectionId, collectionsStoreFields]
-  );
-
   // Layer mode requires a layer
   if (!isStandaloneMode && !layer) return null;
 
@@ -867,38 +834,16 @@ export default function LinkSettings(props: LinkSettingsProps) {
               {!useStackedLayout && <Label variant="muted">CMS item</Label>}
               {useStackedLayout && <Label variant="muted" className="mb-1.5">CMS item</Label>}
               <div className={useStackedLayout ? '' : 'col-span-2'}>
-                <Select
-                  value={collectionItemId || ''}
-                  onValueChange={(value) => {
-                    handleCollectionItemChange(value);
-                    setCollectionItemSearch('');
-                  }}
-                  onOpenChange={(open) => {
-                    if (!open) setCollectionItemSearch('');
-                  }}
-                  disabled={isLockedByOther || loadingItems}
-                >
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder={loadingItems ? 'Loading...' : 'Select...'} />
-                  </SelectTrigger>
-                  <SelectContent
-                    searchable
-                    searchValue={collectionItemSearch}
-                    onSearchChange={setCollectionItemSearch}
-                    searchPlaceholder="Search items..."
-                    className="w-72"
-                  >
-                    <LinkItemOptions
-                      canUseCurrentPageItem={canUseCurrentPageItem}
-                      canUseCurrentCollectionItem={canUseCurrentCollectionItem}
-                      canUseNextPreviousItem={canUseNextPreviousItem}
-                      referenceItemOptions={referenceItemOptions}
-                      collectionItems={collectionItems}
-                      collectionFields={linkedPageCollectionFields}
-                      searchValue={collectionItemSearch}
-                    />
-                  </SelectContent>
-                </Select>
+                <LinkCollectionItemPicker
+                  collectionId={collectionPickerId}
+                  value={collectionItemId}
+                  onChange={handleCollectionItemChange}
+                  canUseCurrentPageItem={canUseCurrentPageItem}
+                  canUseCurrentCollectionItem={canUseCurrentCollectionItem}
+                  canUseNextPreviousItem={canUseNextPreviousItem}
+                  referenceItemOptions={referenceItemOptions}
+                  disabled={isLockedByOther}
+                />
               </div>
             </div>
           )}
