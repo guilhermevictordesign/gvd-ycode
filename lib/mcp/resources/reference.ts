@@ -1,5 +1,6 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { ELEMENT_TEMPLATES } from '@/lib/mcp/utils';
+import { ANIMATION_EASES, PRESET_CATALOG } from '@/lib/mcp/animation-presets';
 
 function getAvailableTemplates() {
   return Object.entries(ELEMENT_TEMPLATES).map(([key, t]) => ({
@@ -177,6 +178,70 @@ export function registerReferenceResources(server: McpServer) {
               position: { type: 'enum', values: ['relative', 'absolute', 'fixed', 'sticky'] },
               zIndex: { type: 'string' },
             },
+          },
+        }, null, 2),
+      }],
+    }),
+  );
+
+  server.resource(
+    'animation-presets-reference',
+    'ycode://reference/animation-presets',
+    {
+      description: 'Animation preset catalog: keys, default triggers/durations/eases, plus the raw LayerInteraction shape for set_layer_interactions',
+      mimeType: 'application/json',
+    },
+    async () => ({
+      contents: [{
+        uri: 'ycode://reference/animation-presets',
+        mimeType: 'application/json',
+        text: JSON.stringify({
+          instructions: 'Use add_animation with a preset key for the common cases. Drop down to set_layer_interactions only when you need full GSAP control.',
+          presets: PRESET_CATALOG,
+          triggers: {
+            click: 'Fires on user click. Use for affordances (pulse, shake).',
+            hover: 'Fires on mouseenter, reverses on mouseleave. Auto-yoyos so you only define the "to" state.',
+            'scroll-into-view': 'Fires once when the element enters the viewport. Default for reveal presets.',
+            'while-scrolling': 'Tween is scrubbed by scroll position. Set timeline.scrub. Use for parallax / progress effects.',
+            load: 'Fires on page load. Use for loops or on-load entrance choreography.',
+          },
+          eases: ANIMATION_EASES,
+          tween_value_formats: {
+            'x | y | width | height': 'CSS length string with unit ("100px", "50%", "5rem").',
+            scale: 'Unitless number string ("1", "1.05").',
+            'rotation | skewX | skewY': 'Degrees with suffix ("45deg", "-90deg").',
+            autoAlpha: 'Opacity 0-100 as plain string ("0", "100") — no % suffix.',
+            backgroundColor: 'Hex or rgb() string ("#ffffff").',
+            display: '"visible" or "hidden".',
+          },
+          tween_position: {
+            number: 'Absolute time in seconds from timeline start.',
+            '">"': 'Start after the previous tween ends.',
+            '"<"': 'Start with the previous tween (overlap).',
+          },
+          apply_styles_modes: {
+            'on-load': 'Apply the "from" value immediately on page load. Use for reveal animations to avoid FOUC.',
+            'on-trigger': 'Apply the "from" value only when the trigger fires. Use for hover/click (element looks normal until interacted with).',
+          },
+          interaction_shape_example: {
+            id: 'int_xxx (auto-generated if omitted)',
+            trigger: 'scroll-into-view',
+            timeline: {
+              breakpoints: ['desktop', 'tablet', 'mobile'],
+              repeat: 0,
+              yoyo: false,
+              toggleActions: 'play none none none',
+            },
+            tweens: [{
+              id: 'twn_xxx (auto-generated if omitted)',
+              layer_id: 'lyr_xxx',
+              position: 0,
+              duration: 0.6,
+              ease: 'power1.out',
+              from: { autoAlpha: '0', y: '40px' },
+              to: { autoAlpha: '100', y: '0px' },
+              apply_styles: { autoAlpha: 'on-load', y: 'on-load' },
+            }],
           },
         }, null, 2),
       }],

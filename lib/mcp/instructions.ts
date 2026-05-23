@@ -258,6 +258,74 @@ update_layer_settings({ layer_id: "...", html_embed_code: "<div>Custom HTML</div
 update_layer_iframe({ layer_id: "...", url: "https://www.youtube.com/embed/..." })
 \`\`\`
 
+### Animations & Interactions
+
+Layers can have GSAP-powered animations triggered by user events or scroll. Use the
+preset library for ~80% of cases; drop down to \`set_layer_interactions\` for full control.
+
+**Preset families** (full catalog at \`ycode://reference/animation-presets\`):
+- **Reveal** (scroll-into-view): \`fade-in\`, \`fade-in-up/down/left/right\`, \`scale-in\`
+- **Hover** (auto-yoyo on mouseleave): \`hover-lift\`, \`hover-scale\`, \`hover-fade\`, \`hover-color\`
+- **Click**: \`click-pulse\`, \`click-shake\`
+- **Scroll-scrubbed**: \`parallax-up\`, \`parallax-down\` (tween follows scroll position)
+- **Stagger**: \`scroll-reveal-stagger\` (one tween per target, offset by \`options.stagger\`)
+- **Loop** (infinite on load): \`loop-bounce\`, \`loop-pulse\`, \`loop-spin\`
+
+**Common pattern — fade hero on scroll:**
+\`\`\`
+add_animation({ page_id, layer_id: heroId, preset: "fade-in-up", options: { distance: "60px", duration: 0.8 } })
+\`\`\`
+
+**Card grid that staggers as it scrolls in:**
+\`\`\`
+add_animation({
+  page_id, layer_id: gridId,
+  preset: "scroll-reveal-stagger",
+  targets: [card1, card2, card3, card4],
+  options: { stagger: 0.12 }
+})
+\`\`\`
+
+**Hover a card to lift it AND fade in a CTA inside it** — multi-target:
+\`\`\`
+add_animation({
+  page_id, layer_id: cardId,
+  preset: "hover-lift",
+  targets: [cardId, ctaId],  // one tween per target, same trigger
+  options: { distance: "6px" }
+})
+\`\`\`
+
+**Override the preset's trigger** (rare — most presets pick the right trigger):
+\`\`\`
+add_animation({ page_id, layer_id, preset: "fade-in", trigger: "load" })
+\`\`\`
+
+**Managing animations:**
+- \`list_layer_animations({ page_id, layer_id })\` — see what's attached
+- \`remove_layer_animation({ page_id, layer_id, interaction_id })\` — drop one
+- \`clear_layer_animations({ page_id, layer_id })\` — remove all
+
+**Escape hatch — full GSAP timeline control:**
+\`set_layer_interactions\` replaces the entire \`interactions\` array with raw shapes.
+Use when presets don't fit: custom eases per-tween, exotic timeline positions ("<", ">"),
+mixed apply_styles per property, or compositions a preset can't express.
+
+Tween value formats (see the animation-presets reference for the full table):
+- \`x/y/width/height\`: CSS length string ("100px", "5rem")
+- \`scale\`: unitless string ("1.05")
+- \`rotation\`: degrees ("45deg")
+- \`autoAlpha\`: opacity 0-100 as plain string ("0", "100") — **no % suffix**
+- \`backgroundColor\`: hex/rgb ("#ffffff")
+
+**apply_styles modes** (per-property in the \`from\` state):
+- \`on-load\`: pre-apply the from state on page load. Use for reveal animations to avoid FOUC.
+- \`on-trigger\`: only apply the from state when the trigger fires. Use for hover/click
+  so the element looks normal until interacted with.
+
+The presets pick the right \`apply_styles\` mode automatically; you only need to think
+about it when using \`set_layer_interactions\`.
+
 ### Page Settings
 
 **SEO** — Set meta title, description, OG image, and noindex:

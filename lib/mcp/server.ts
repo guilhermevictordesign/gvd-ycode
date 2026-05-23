@@ -23,6 +23,7 @@ import { registerLocaleTools } from '@/lib/mcp/tools/locales';
 import { registerFormTools } from '@/lib/mcp/tools/forms';
 import { registerSettingsTools } from '@/lib/mcp/tools/settings';
 import { registerPublishingTools } from '@/lib/mcp/tools/publishing';
+import { registerAnimationTools } from '@/lib/mcp/tools/animations';
 import { registerReferenceResources } from '@/lib/mcp/resources/reference';
 import { registerSiteResources } from '@/lib/mcp/resources/site';
 
@@ -48,6 +49,7 @@ export function createMcpServer(): McpServer {
   registerFormTools(server);
   registerSettingsTools(server);
   registerPublishingTools(server);
+  registerAnimationTools(server);
 
   registerReferenceResources(server);
   registerSiteResources(server);
