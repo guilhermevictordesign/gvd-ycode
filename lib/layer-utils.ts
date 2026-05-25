@@ -10,7 +10,7 @@ import { getCmsFieldBinding } from '@/lib/tiptap-utils';
 import { applyComponentOverrides } from '@/lib/resolve-components';
 import { getComponentVariantLayers } from '@/lib/component-variant-utils';
 import { resolveFieldFromSources } from '@/lib/cms-variables-utils';
-import { isDatePreset, resolveDateFilterValue } from '@/lib/collection-field-utils';
+import { compareDateFilter, isDateFieldType, isDatePreset, resolveDateFilterValue } from '@/lib/collection-field-utils';
 import { parseMultiReferenceValue } from '@/lib/collection-utils';
 import { getInheritedValue } from '@/lib/tailwind-class-mapper';
 import cloneDeep from 'lodash/cloneDeep';
@@ -1976,7 +1976,7 @@ function evaluateCondition(
     let effectiveOperator = condition.operator;
     const fieldType = condition.fieldType || 'text';
 
-    if (fieldType === 'date' && isDatePreset(compareValue)) {
+    if (isDateFieldType(fieldType) && isDatePreset(compareValue)) {
       const resolved = resolveDateFilterValue(effectiveOperator, compareValue, compareValue2);
       if (resolved) {
         effectiveOperator = resolved.operator as typeof effectiveOperator;
@@ -1997,11 +1997,17 @@ function evaluateCondition(
         if (fieldType === 'number') {
           return parseFloat(value) === parseFloat(compareValue);
         }
+        if (isDateFieldType(fieldType)) {
+          return compareDateFilter(value, 'is', compareValue);
+        }
         return value === compareValue;
 
       case 'is_not':
         if (fieldType === 'number') {
           return parseFloat(value) !== parseFloat(compareValue);
+        }
+        if (isDateFieldType(fieldType)) {
+          return !compareDateFilter(value, 'is', compareValue);
         }
         return value !== compareValue;
 
@@ -2030,25 +2036,15 @@ function evaluateCondition(
       case 'gte':
         return parseFloat(value) >= parseFloat(compareValue);
 
-      // Date operators
-      case 'is_before': {
-        const dateValue = new Date(value);
-        const compareDateValue = new Date(compareValue);
-        return dateValue < compareDateValue;
-      }
+      // Date operators (day-aware: `YYYY-MM-DD` filter values span the full UTC day)
+      case 'is_before':
+        return compareDateFilter(value, 'is_before', compareValue);
 
-      case 'is_after': {
-        const dateValue = new Date(value);
-        const compareDateValue = new Date(compareValue);
-        return dateValue > compareDateValue;
-      }
+      case 'is_after':
+        return compareDateFilter(value, 'is_after', compareValue);
 
-      case 'is_between': {
-        const dateValue = new Date(value);
-        const startDate = new Date(compareValue);
-        const endDate = new Date(compareValue2 ?? '');
-        return dateValue >= startDate && dateValue <= endDate;
-      }
+      case 'is_between':
+        return compareDateFilter(value, 'is_between', compareValue, compareValue2);
 
       case 'is_not_empty':
         return isPresent;

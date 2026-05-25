@@ -3,7 +3,7 @@
 import React, { useEffect, useLayoutEffect, useRef, useCallback, useState } from 'react';
 import { useFilterStore } from '@/stores/useFilterStore';
 import type { ConditionalVisibility, Layer } from '@/types';
-import { isDatePreset, resolveDateFilterValue } from '@/lib/collection-field-utils';
+import { isDateFieldType, isDatePreset, resolveDateFilterValue } from '@/lib/collection-field-utils';
 
 interface FilterableCollectionProps {
   children: React.ReactNode;
@@ -230,7 +230,7 @@ export default function FilterableCollection({
         }
 
         let resolvedOperator: string = condition.operator;
-        if (condition.fieldType === 'date' && isDatePreset(value)) {
+        if (isDateFieldType(condition.fieldType) && isDatePreset(value)) {
           const resolved = resolveDateFilterValue(condition.operator, value, value2);
           if (!resolved) continue;
           resolvedOperator = resolved.operator;

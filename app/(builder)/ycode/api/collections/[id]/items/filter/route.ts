@@ -8,7 +8,7 @@ import { getAllPages } from '@/lib/repositories/pageRepository';
 import { getAllPageFolders } from '@/lib/repositories/pageFolderRepository';
 import { renderCollectionItemsToHtml, loadTranslationsForLocale } from '@/lib/page-fetcher';
 import { noCache } from '@/lib/api-response';
-import { isDatePreset, resolveDateFilterValue } from '@/lib/collection-field-utils';
+import { compareDateFilter, isDateFieldType, isDatePreset, resolveDateFilterValue } from '@/lib/collection-field-utils';
 import type { Layer, CollectionItem, CollectionItemWithValues } from '@/types';
 
 export const dynamic = 'force-dynamic';
@@ -125,6 +125,17 @@ async function getIdsMatchingFilter(
         }
         return result;
       }
+      if (isDateFieldType(filter.fieldType)) {
+        const data = await chunkedQuery(
+          chunk => selectIdsAndValues(chunk).neq('value', ''),
+          allItemIds,
+        );
+        const result = new Set<string>();
+        for (const row of data) {
+          if (compareDateFilter(String(row.value), 'is', value)) result.add(row.item_id);
+        }
+        return result;
+      }
       const data = await chunkedQuery(
         chunk => selectIds(chunk).ilike('value', escapeLikeValue(value)),
         allItemIds,
@@ -166,6 +177,17 @@ async function getIdsMatchingFilter(
           if (isTruthy !== targetBool) result.add(row.item_id);
         }
         return result;
+      }
+      if (isDateFieldType(filter.fieldType)) {
+        const data = await chunkedQuery(
+          chunk => selectIdsAndValues(chunk).neq('value', ''),
+          allItemIds,
+        );
+        const matchIds = new Set<string>();
+        for (const row of data) {
+          if (compareDateFilter(String(row.value), 'is', value)) matchIds.add(row.item_id);
+        }
+        return new Set([...allSet].filter(id => !matchIds.has(id)));
       }
       const data = await chunkedQuery(
         chunk => selectIds(chunk).ilike('value', escapeLikeValue(value)),
@@ -226,32 +248,26 @@ async function getIdsMatchingFilter(
       return result;
     }
 
-    // --- Date ---
+    // --- Date (day-aware: `YYYY-MM-DD` filter values span the full UTC day) ---
     case 'is_before': {
-      const filterDate = new Date(value).getTime();
-      if (isNaN(filterDate)) return new Set();
       const data = await chunkedQuery(
         chunk => selectIdsAndValues(chunk).neq('value', ''),
         allItemIds,
       );
       const result = new Set<string>();
       for (const row of data) {
-        const d = new Date(String(row.value)).getTime();
-        if (!isNaN(d) && d < filterDate) result.add(row.item_id);
+        if (compareDateFilter(String(row.value), 'is_before', value)) result.add(row.item_id);
       }
       return result;
     }
     case 'is_after': {
-      const filterDate = new Date(value).getTime();
-      if (isNaN(filterDate)) return new Set();
       const data = await chunkedQuery(
         chunk => selectIdsAndValues(chunk).neq('value', ''),
         allItemIds,
       );
       const result = new Set<string>();
       for (const row of data) {
-        const d = new Date(String(row.value)).getTime();
-        if (!isNaN(d) && d > filterDate) result.add(row.item_id);
+        if (compareDateFilter(String(row.value), 'is_after', value)) result.add(row.item_id);
       }
       return result;
     }
@@ -260,27 +276,20 @@ async function getIdsMatchingFilter(
       const endRaw = (filter.value2 || '').trim();
       if (!startRaw && !endRaw) return new Set();
 
-      const startDate = startRaw ? new Date(startRaw).getTime() : null;
-      const endDate = endRaw ? new Date(endRaw).getTime() : null;
-      if ((startDate !== null && isNaN(startDate)) || (endDate !== null && isNaN(endDate))) {
-        return new Set();
-      }
-
       const data = await chunkedQuery(
         chunk => selectIdsAndValues(chunk).neq('value', ''),
         allItemIds,
       );
       const result = new Set<string>();
       for (const row of data) {
-        const d = new Date(String(row.value)).getTime();
-        if (isNaN(d)) continue;
-
-        if (startDate !== null && endDate !== null) {
-          if (d >= startDate && d <= endDate) result.add(row.item_id);
-        } else if (startDate !== null) {
-          if (d >= startDate) result.add(row.item_id);
-        } else if (endDate !== null) {
-          if (d <= endDate) result.add(row.item_id);
+        const storedValue = String(row.value);
+        // Open-ended ranges fall back to the relevant single-bound operator.
+        if (startRaw && endRaw) {
+          if (compareDateFilter(storedValue, 'is_between', startRaw, endRaw)) result.add(row.item_id);
+        } else if (startRaw) {
+          if (!compareDateFilter(storedValue, 'is_before', startRaw)) result.add(row.item_id);
+        } else if (endRaw) {
+          if (!compareDateFilter(storedValue, 'is_after', endRaw)) result.add(row.item_id);
         }
       }
       return result;
@@ -427,7 +436,7 @@ async function getFilteredItemIds(
 
     for (let filter of group) {
       if (currentIds.size === 0) break;
-      if (filter.fieldType === 'date' && isDatePreset(filter.value)) {
+      if (isDateFieldType(filter.fieldType) && isDatePreset(filter.value)) {
         const resolved = resolveDateFilterValue(filter.operator, filter.value, filter.value2);
         if (resolved) {
           filter = { ...filter, operator: resolved.operator, value: resolved.value, value2: resolved.value2 };
