@@ -8,12 +8,26 @@
  * Swiper JS is bundled and initialized here per-slider instance.
  */
 
-import { useEffect, useRef, useMemo } from 'react';
+import { useEffect, useRef, useMemo, useState } from 'react';
 import Swiper from 'swiper';
 import type { Layer, SliderSettings } from '@/types';
 import { useEditorStore } from '@/stores/useEditorStore';
 import { DEFAULT_SLIDER_SETTINGS } from '@/lib/slider-constants';
 import { buildCanvasSwiperOptions, applySwiperEasing } from '@/lib/slider-utils';
+
+/**
+ * Count the real (non-duplicate) swiper-slide DOM children inside the
+ * given slider element. Used to detect when collection-backed slides
+ * arrive after the initial Swiper init, so we can recreate Swiper with
+ * the right slide count (and avoid the "not enough slides for loop" warning).
+ */
+function countRealSlides(sliderEl: HTMLElement): number {
+  const wrapper = sliderEl.querySelector('.swiper-wrapper');
+  if (!wrapper) return 0;
+  return wrapper.querySelectorAll(
+    ':scope > .swiper-slide:not(.swiper-slide-duplicate)',
+  ).length;
+}
 
 /** Registry of active Swiper instances and their layer refs */
 const swiperRegistry = new Map<string, { swiper: Swiper; layerRef: React.RefObject<Layer> }>();
@@ -101,9 +115,58 @@ export function useCanvasSlider(
   const settingsRef = useRef(settings);
   useEffect(() => { settingsRef.current = settings; });
 
+  // Track the real (non-duplicate) swiper-slide count in the DOM. Collection-
+  // backed slides expand asynchronously after data fetches, so the count we
+  // see at first init is often 0. Within the init effect we use this only
+  // through `initBucket` (below) so Swiper is recreated when transitioning
+  // between "no slides", "too few for loop", and "enough" — not on every
+  // single add/remove (those still go through the wrapper observer's
+  // swiper.update()).
+  const [slideCount, setSlideCount] = useState(0);
+
+  useEffect(() => {
+    if (!isSlider || !elementRef.current) return;
+    const el = elementRef.current;
+
+    const measure = () => setSlideCount(countRealSlides(el));
+    measure();
+
+    const ObsCtor = el.ownerDocument.defaultView?.MutationObserver;
+    if (!ObsCtor) return;
+
+    let raf: number | undefined;
+    const observer = new ObsCtor(() => {
+      if (raf) cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(measure);
+    });
+    observer.observe(el, { childList: true, subtree: true });
+
+    return () => {
+      if (raf) cancelAnimationFrame(raf);
+      observer.disconnect();
+    };
+  }, [isSlider, elementRef]);
+
+  // Bucket the slide count so we only force a Swiper reinit when transitions
+  // matter (no slides → some, or insufficient → enough for loop). Within
+  // the same bucket, slide add/remove is handled by swiper.update().
+  // Loop requires at least `slidesPerView + slidesPerGroup` slides; with
+  // slidesPerView='auto' the safest conservative threshold is 2.
+  const needsLoop = settings.loop === 'loop';
+  const minSlidesForLoop = Math.max(2, (settings.slidesPerGroup || 1) + 1);
+  const initBucket = slideCount === 0
+    ? 'empty'
+    : needsLoop && slideCount < minSlidesForLoop
+      ? 'too-few-for-loop'
+      : 'ok';
+
   // Initialize / destroy Swiper when the slider mounts or settings change
   useEffect(() => {
     if (!isSlider || !elementRef.current) return;
+    // Skip init when no slides exist yet (e.g. collection-backed slides
+    // still loading). The slideCount effect above will bump the bucket
+    // once slides arrive, retriggering this effect.
+    if (initBucket === 'empty') return;
 
     const el = elementRef.current;
 
@@ -251,7 +314,7 @@ export function useCanvasSlider(
       swiperRef.current = null;
       setSliderAnimating(false);
     };
-  }, [isSlider, elementRef, settingsKey, layer.id]);
+  }, [isSlider, elementRef, settingsKey, layer.id, initBucket]);
 
   // Navigate to the slide containing the selected layer
   useEffect(() => {

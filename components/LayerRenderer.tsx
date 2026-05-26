@@ -1321,6 +1321,7 @@ const LayerItemImpl: React.FC<{
     // Apply collection filters (evaluate against each item's own values)
     // In edit mode, skip conditions that have inputLayerId (dynamic filter inputs have no value at design time)
     const collectionFilters = collectionVariable?.filters;
+    const hasStaticFilters = !!collectionFilters?.groups?.some(g => g.conditions.some(c => !c.inputLayerId));
     if (collectionFilters?.groups?.length) {
       const effectiveFilters = isEditMode
         ? {
@@ -1345,8 +1346,19 @@ const LayerItemImpl: React.FC<{
       }
     }
 
+    // Mirror SSR semantics: when static filters are present we fetch all items
+    // (no API limit/offset) so filtering happens on the full set. Re-apply the
+    // configured limit/offset here so the canvas shows the same items as preview.
+    if (hasStaticFilters) {
+      const offset = collectionVariable?.offset ?? 0;
+      const limit = collectionVariable?.limit;
+      if (offset || limit) {
+        items = items.slice(offset, limit ? offset + limit : undefined);
+      }
+    }
+
     return items;
-  }, [collectionId, allCollectionItems, sourceFieldId, sourceFieldType, sourceFieldSource, collectionLayerData, pageCollectionItemData, collectionLayerItemId, pageCollectionItemId, getAsset, collectionVariable?.filters, isEditMode]);
+  }, [collectionId, allCollectionItems, sourceFieldId, sourceFieldType, sourceFieldSource, collectionLayerData, pageCollectionItemData, collectionLayerItemId, pageCollectionItemId, getAsset, collectionVariable?.filters, collectionVariable?.limit, collectionVariable?.offset, isEditMode]);
 
   const optionsSourceSort = layer.settings?.optionsSource;
 
@@ -1402,13 +1414,23 @@ const LayerItemImpl: React.FC<{
       }
     }
 
+    // When static filters are present, fetch the full set so client-side
+    // filtering matches SSR (which filters then limits). The API's default
+    // `limit=25` would otherwise return a page of items that all fail the
+    // filter (e.g. all past events for a "date >= today" filter), hiding the
+    // layer. Mirrors the per-collection cap used by SSR's collection cache.
+    const FILTERED_FETCH_LIMIT = 5000;
+    const hasStaticFilters = !!collectionVariable.filters?.groups?.some(
+      g => g.conditions.some(c => !c.inputLayerId)
+    );
+
     fetchLayerData(
       layer.id,
       collectionVariable.id,
       sortBy,
       sortOrder,
-      collectionVariable.limit,
-      collectionVariable.offset
+      hasStaticFilters ? FILTERED_FETCH_LIMIT : collectionVariable.limit,
+      hasStaticFilters ? 0 : collectionVariable.offset
     );
   }, [
     isEditMode,
@@ -1420,6 +1442,7 @@ const LayerItemImpl: React.FC<{
     collectionVariable?.sort_order_inputLayerId,
     collectionVariable?.limit,
     collectionVariable?.offset,
+    collectionVariable?.filters,
     optionsSourceSort?.sortFieldId,
     optionsSourceSort?.sortOrder,
     sortByInputDefaultValue,

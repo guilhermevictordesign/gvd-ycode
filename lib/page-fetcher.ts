@@ -1955,21 +1955,32 @@ async function buildCollectionCache(
     }
   }
 
-  // Phase 2: Fetch ref collection fields + ALL items in parallel
+  // Phase 2: Fetch ref collection fields + items in parallel.
+  // Items are fetched per-collection because a single `.in('collection_id', [...])`
+  // query is bounded by Supabase/PostgREST's `db-max-rows` setting (often 1000),
+  // so a large collection can starve smaller ones in the same page.
   const allCollIds = [...ids, ...refCollectionIds];
+  const PER_COLLECTION_LIMIT = 5000;
 
-  let itemsQuery = client
-    .from('collection_items')
-    .select('*')
-    .in('collection_id', allCollIds)
-    .eq('is_published', isPublished)
-    .is('deleted_at', null)
-    .order('manual_order', { ascending: true })
-    .order('created_at', { ascending: false })
-    .limit(5000);
-  if (isPublished) {
-    itemsQuery = itemsQuery.eq('is_publishable', true);
-  }
+  const buildItemsQuery = (collectionId: string) => {
+    let q = client
+      .from('collection_items')
+      .select('*')
+      .eq('collection_id', collectionId)
+      .eq('is_published', isPublished)
+      .is('deleted_at', null)
+      .order('manual_order', { ascending: true })
+      .order('created_at', { ascending: false })
+      .limit(PER_COLLECTION_LIMIT);
+    if (isPublished) q = q.eq('is_publishable', true);
+    return q;
+  };
+
+  const itemsPromise = Promise.all(allCollIds.map(buildItemsQuery))
+    .then(results => ({
+      data: results.flatMap(r => r.data || []),
+      error: results.find(r => r.error)?.error,
+    }));
 
   const refFieldsPromise = refCollectionIds.length > 0
     ? client.from('collection_fields').select('*')
@@ -1981,7 +1992,7 @@ async function buildCollectionCache(
       .limit(5000)
     : Promise.resolve({ data: [] as any[] });
 
-  const [{ data: itemsData }, { data: refFieldsRaw }] = await Promise.all([itemsQuery, refFieldsPromise]);
+  const [{ data: itemsData }, { data: refFieldsRaw }] = await Promise.all([itemsPromise, refFieldsPromise]);
 
   // Build field structures
   const allFieldsData = [...(fieldsData || []), ...(refFieldsRaw || [])];

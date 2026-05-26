@@ -11,7 +11,7 @@ import { applyComponentOverrides } from '@/lib/resolve-components';
 import { getComponentVariantLayers } from '@/lib/component-variant-utils';
 import { resolveFieldFromSources } from '@/lib/cms-variables-utils';
 import { compareDateFilter, isDateFieldType, isDatePreset, resolveDateFilterValue } from '@/lib/collection-field-utils';
-import { parseMultiReferenceValue } from '@/lib/collection-utils';
+import { parseMultiReferenceValue, normalizeBooleanValue } from '@/lib/collection-utils';
 import { getInheritedValue } from '@/lib/tailwind-class-mapper';
 import cloneDeep from 'lodash/cloneDeep';
 import { layerHasLink, hasLinkInTree, hasRichTextLinks } from '@/lib/link-utils';
@@ -2010,7 +2010,10 @@ function evaluateCondition(
       // Text operators
       case 'is':
         if (fieldType === 'boolean') {
-          return value.toLowerCase() === compareValue.toLowerCase();
+          // Booleans may be stored as 'true'/'false', '1'/'0', or '' (depending
+          // on import source — UI, Airtable sync, CSV, etc.). Normalize both
+          // sides so the comparison is source-agnostic.
+          return normalizeBooleanValue(value) === normalizeBooleanValue(compareValue);
         }
         if (fieldType === 'number') {
           return parseFloat(value) === parseFloat(compareValue);
@@ -2021,6 +2024,9 @@ function evaluateCondition(
         return value === compareValue;
 
       case 'is_not':
+        if (fieldType === 'boolean') {
+          return normalizeBooleanValue(value) !== normalizeBooleanValue(compareValue);
+        }
         if (fieldType === 'number') {
           return parseFloat(value) !== parseFloat(compareValue);
         }
