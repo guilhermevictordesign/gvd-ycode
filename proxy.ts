@@ -60,6 +60,7 @@ function isPublicApiRoute(pathname: string, method: string): boolean {
   }
 
   if (PUBLIC_API_EXACT.includes(pathname)) return true;
+
   if (PUBLIC_API_PREFIXES.some((prefix) => pathname.startsWith(prefix))) return true;
 
   // Collection item endpoints for published pages (POST only — filter, load-more)
@@ -113,7 +114,13 @@ async function verifyApiAuth(request: NextRequest): Promise<NextResponse | null>
     );
   }
 
-  return null;
+  // Authenticated — pass through with any refreshed cookies
+  const authResponse = NextResponse.next({ request });
+  response.cookies.getAll().forEach((cookie) => {
+    authResponse.cookies.set(cookie.name, cookie.value);
+  });
+
+  return authResponse;
 }
 
 export async function proxy(request: NextRequest) {
@@ -131,9 +138,14 @@ export async function proxy(request: NextRequest) {
   if (pathname.startsWith('/ycode/api') || pathname.startsWith('/ycode/preview')) {
     const authResponse = await verifyApiAuth(request);
     if (authResponse) {
-      if (pathname.startsWith('/ycode/preview')) {
-        return NextResponse.redirect(new URL('/ycode', request.url));
+      if (authResponse.status === 401) {
+        if (pathname.startsWith('/ycode/preview')) {
+          return NextResponse.redirect(new URL('/ycode', request.url));
+        }
+        return authResponse;
       }
+      // Authenticated — pass through
+      authResponse.headers.set('x-pathname', pathname);
       return authResponse;
     }
   }

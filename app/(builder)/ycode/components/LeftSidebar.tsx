@@ -41,6 +41,7 @@ interface LeftSidebarProps {
   onPageSelect: (pageId: string) => void;
   liveLayerUpdates?: UseLiveLayerUpdatesReturn | null;
   liveComponentUpdates?: UseLiveComponentUpdatesReturn | null;
+  readOnly?: boolean;
 }
 
 const LeftSidebar = React.memo(function LeftSidebar({
@@ -49,6 +50,7 @@ const LeftSidebar = React.memo(function LeftSidebar({
   onPageSelect,
   liveLayerUpdates,
   liveComponentUpdates,
+  readOnly = false,
 }: LeftSidebarProps) {
   // Intentionally NOT subscribing to selectedLayerId here — it's only read
   // inside the asset-select handler. A subscription would re-render the
@@ -341,10 +343,12 @@ const LeftSidebar = React.memo(function LeftSidebar({
             }}
             className="h-full overflow-hidden gap-0!"
           >
-            <TabsList className="w-full shrink-0">
-              <TabsTrigger value="layers">Layers</TabsTrigger>
-              <TabsTrigger value="pages">Pages</TabsTrigger>
-            </TabsList>
+            {!readOnly && (
+              <TabsList className="w-full shrink-0">
+                <TabsTrigger value="layers">Layers</TabsTrigger>
+                <TabsTrigger value="pages">Pages</TabsTrigger>
+              </TabsList>
+            )}
 
             <hr className="mt-4" />
 
@@ -401,15 +405,17 @@ const LeftSidebar = React.memo(function LeftSidebar({
                 />
               )}
               <header className="py-5 flex justify-between shrink-0 z-20">
-                <span className="font-medium">{editingComponentId ? 'Layers' : 'Layers'}</span>
-                <div className="-my-1">
-                  <Button
-                    size="xs" variant="secondary"
-                    onClick={() => setShowElementLibrary(prev => !prev)}
-                  >
-                    <Icon name="plus" className={`${showElementLibrary ? 'rotate-45' : 'rotate-0'} transition-transform duration-100`} />
-                  </Button>
-                </div>
+                <span className="font-medium">Layers</span>
+                {!readOnly && (
+                  <div className="-my-1">
+                    <Button
+                      size="xs" variant="secondary"
+                      onClick={() => setShowElementLibrary(prev => !prev)}
+                    >
+                      <Icon name="plus" className={`${showElementLibrary ? 'rotate-45' : 'rotate-0'} transition-transform duration-100`} />
+                    </Button>
+                  </div>
+                )}
               </header>
 
               <div
@@ -434,6 +440,7 @@ const LeftSidebar = React.memo(function LeftSidebar({
                     pageId={currentPageId || ''}
                     liveLayerUpdates={liveLayerUpdates}
                     liveComponentUpdates={liveComponentUpdates}
+                    readOnly={readOnly}
                   />
                 )}
               </div>
@@ -451,6 +458,7 @@ const LeftSidebar = React.memo(function LeftSidebar({
                 currentPageId={currentPageId}
                 onPageSelect={onPageSelect}
                 setCurrentPageId={setCurrentPageId}
+                readOnly={readOnly}
               />
             </TabsContent>
 

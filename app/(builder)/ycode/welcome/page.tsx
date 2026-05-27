@@ -884,12 +884,21 @@ export default function WelcomePage() {
         const { useAuthStore } = await import('@/stores/useAuthStore');
         const { signUp } = useAuthStore.getState();
 
-        // Sign up admin user
         const result = await signUp(email, password);
 
         if (result.error) {
           setError(result.error);
           return;
+        }
+
+        // Assign owner role to the first user
+        const { user: newUser } = useAuthStore.getState();
+        if (newUser?.id) {
+          await fetch('/ycode/api/auth/set-role', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ userId: newUser.id, role: 'owner' }),
+          });
         }
 
         // Complete setup

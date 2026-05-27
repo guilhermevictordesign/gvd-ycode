@@ -40,6 +40,7 @@ interface LayerContextMenuProps {
   layerId: string;
   pageId: string;
   children: React.ReactNode;
+  readOnly?: boolean;
   isLocked?: boolean;
   onLayerSelect?: (layerId: string) => void;
   liveLayerUpdates?: UseLiveLayerUpdatesReturn | null;
@@ -961,6 +962,7 @@ function LayerContextMenu({
   layerId,
   pageId,
   children,
+  readOnly = false,
   isLocked = false,
   onLayerSelect,
   liveLayerUpdates,
@@ -1016,6 +1018,8 @@ function LayerContextMenu({
     },
     [canvasPortalContainer, onLayerSelect, layerId]
   );
+
+  if (readOnly) return <>{children}</>;
 
   return (
     <ContextMenu onOpenChange={handleOpenChange}>

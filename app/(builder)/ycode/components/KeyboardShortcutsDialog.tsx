@@ -7,7 +7,7 @@
  * Can be opened via the settings dropdown or with Shift+/
  */
 
-import React, { useEffect } from 'react';
+import React, { useEffect, useMemo } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -15,6 +15,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { useEditorStore } from '@/stores/useEditorStore';
+import { useRole } from '@/hooks/use-role';
 
 interface ShortcutKey {
   name: string;
@@ -118,17 +119,35 @@ function ShortcutCategory({ category }: { category: ShortcutCategory }) {
   );
 }
 
+const STRUCTURAL_SHORTCUTS = new Set([
+  'Copy', 'Paste', 'Cut', 'Duplicate', 'Copy style', 'Paste style',
+  'Rename', 'Delete', 'Create component', 'Detach instance',
+  'Show/Hide element', 'Open add elements',
+]);
+
 export default function KeyboardShortcutsDialog() {
   const isOpen = useEditorStore((state) => state.keyboardShortcutsOpen);
   const setKeyboardShortcutsOpen = useEditorStore((state) => state.setKeyboardShortcutsOpen);
+  const { isEditor } = useRole();
+
+  const filteredCategories = useMemo(() => {
+    if (!isEditor) return shortcutCategories;
+
+    const filterCategory = (cat: ShortcutCategory): ShortcutCategory => ({
+      ...cat,
+      shortcuts: cat.shortcuts.filter(s => !STRUCTURAL_SHORTCUTS.has(s.name)),
+    });
+
+    return {
+      left: shortcutCategories.left.map(filterCategory).filter(c => c.shortcuts.length > 0),
+      right: shortcutCategories.right.map(filterCategory).filter(c => c.shortcuts.length > 0),
+    };
+  }, [isEditor]);
 
   // Handle Shift+/ keyboard shortcut (Shift+/ produces '?' on most keyboards)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Check for Shift + / (produces '?' character)
-      // Also check e.code === 'Slash' for physical key detection
       if (e.shiftKey && (e.key === '?' || e.code === 'Slash')) {
-        // Don't trigger if user is typing in an input field
         const target = e.target as HTMLElement;
         if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
           return;
@@ -154,14 +173,14 @@ export default function KeyboardShortcutsDialog() {
         <div className="grid grid-cols-2 gap-8">
           {/* Left column */}
           <div className="space-y-6">
-            {shortcutCategories.left.map((category) => (
+            {filteredCategories.left.map((category) => (
               <ShortcutCategory key={category.name} category={category} />
             ))}
           </div>
 
           {/* Right column */}
           <div className="space-y-6">
-            {shortcutCategories.right.map((category) => (
+            {filteredCategories.right.map((category) => (
               <ShortcutCategory key={category.name} category={category} />
             ))}
           </div>

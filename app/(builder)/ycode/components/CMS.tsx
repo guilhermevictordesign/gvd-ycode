@@ -42,6 +42,7 @@ import { CollectionStatusPill, parseStatusValue } from './CollectionStatusPill';
 import { extractPlainTextFromTiptap } from '@/lib/tiptap-utils';
 import { parseCollectionLinkValue, resolveCollectionLinkValue } from '@/lib/link-utils';
 import { useEditorUrl } from '@/hooks/use-editor-url';
+import { useRole } from '@/hooks/use-role';
 import FieldsDropdown from './FieldsDropdown';
 import AirtableSyncButton from './AirtableSyncButton';
 import CollectionItemContextMenu from './CollectionItemContextMenu';
@@ -198,6 +199,7 @@ interface SortableCollectionItemProps {
   renameValue: string;
   itemCount?: number;
   isItemCountLoading?: boolean;
+  canManageSchema?: boolean;
   onRenameValueChange: (value: string) => void;
   onSelect: () => void;
   onDoubleClick: () => void;
@@ -219,6 +221,7 @@ function SortableCollectionItem({
   renameValue,
   itemCount,
   isItemCountLoading,
+  canManageSchema = true,
   onRenameValueChange,
   onSelect,
   onDoubleClick,
@@ -289,6 +292,7 @@ function SortableCollectionItem({
             <span>{collection.name}</span>
           </div>
 
+          {canManageSchema && (
           <div className="group-hover:opacity-100 opacity-0">
             <DropdownMenu
               open={openDropdownId === collection.id}
@@ -317,12 +321,14 @@ function SortableCollectionItem({
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
+          )}
 
-          <span className="group-hover:hidden block text-xs opacity-50">
+          <span className={cn('block text-xs opacity-50', canManageSchema && 'group-hover:hidden')}>
             {isItemCountLoading ? <Spinner className="size-3" /> : (itemCount ?? collection.draft_items_count)}
           </span>
         </div>
       </ContextMenuTrigger>
+      {canManageSchema && (
       <ContextMenuContent>
         <ContextMenuItem onClick={onRename}>
           Rename
@@ -331,6 +337,7 @@ function SortableCollectionItem({
           Delete
         </ContextMenuItem>
       </ContextMenuContent>
+      )}
     </ContextMenu>
   );
 }
@@ -389,6 +396,7 @@ const CMS = React.memo(function CMS() {
   const invalidateLayerData = useCollectionLayerStore((state) => state.invalidateLayerData);
 
   const { urlState, navigateToCollection, navigateToCollectionItem, navigateToNewCollectionItem, navigateToCollections } = useEditorUrl();
+  const { canEditStructure: canManageSchema } = useRole();
 
   // Track previous collection ID to prevent unnecessary reloads
   const prevCollectionIdRef = React.useRef<string | null>(null);
@@ -1542,6 +1550,7 @@ const CMS = React.memo(function CMS() {
                               </span>
                             )}
                           </button>
+                          {canManageSchema && (
                           <DropdownMenu
                             open={openDropdownId === field.id}
                             onOpenChange={(open) => !showSkeleton && setOpenDropdownId(open ? field.id : null)}
@@ -1584,10 +1593,12 @@ const CMS = React.memo(function CMS() {
                               </DropdownMenuItem>
                             </DropdownMenuContent>
                           </DropdownMenu>
+                          )}
                         </div>
                       </th>
                     );
                   })}
+                  {canManageSchema && (
                   <th className="px-4 py-3 text-left font-medium text-sm w-24 sticky right-0 top-0 z-20 bg-background border-b border-border">
                     <Button
                       size="sm"
@@ -1599,6 +1610,7 @@ const CMS = React.memo(function CMS() {
                       Add field
                     </Button>
                   </th>
+                  )}
                   <th className="sticky top-0 z-10 bg-background border-b border-border" />
                 </tr>
               </thead>
@@ -2030,6 +2042,7 @@ const CMS = React.memo(function CMS() {
     <div className="w-64 shrink-0 bg-background border-r flex flex-col overflow-hidden px-4">
       <header className="py-5 flex items-center justify-between shrink-0">
         <span className="font-medium">Collections</span>
+        {canManageSchema && (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button
@@ -2062,6 +2075,7 @@ const CMS = React.memo(function CMS() {
             </DropdownMenuSub>
           </DropdownMenuContent>
         </DropdownMenu>
+        )}
       </header>
       <div className="flex-1 overflow-y-auto no-scrollbar">
         <DndContext
@@ -2081,13 +2095,14 @@ const CMS = React.memo(function CMS() {
                   isSelected={selectedCollectionId === collection.id}
                   isHovered={hoveredCollectionId === collection.id}
                   openDropdownId={collectionDropdownId}
-                  isRenaming={collectionRename.renamingId === collection.id}
+                  isRenaming={canManageSchema && collectionRename.renamingId === collection.id}
                   renameValue={collectionRename.renameValue}
                   itemCount={itemsTotalCount[collection.id]}
                   isItemCountLoading={loadingSampleCollectionId === collection.id}
+                  canManageSchema={canManageSchema}
                   onRenameValueChange={collectionRename.setRenameValue}
                   onSelect={() => handleCollectionSelect(collection.id)}
-                  onDoubleClick={() => handleCollectionDoubleClick(collection)}
+                  onDoubleClick={canManageSchema ? () => handleCollectionDoubleClick(collection) : () => {}}
                   onMouseEnter={() => setHoveredCollectionId(collection.id)}
                   onMouseLeave={() => setHoveredCollectionId(null)}
                   onDropdownOpenChange={(open) => setCollectionDropdownId(open ? collection.id : null)}
@@ -2188,6 +2203,7 @@ const CMS = React.memo(function CMS() {
             />
           )}
 
+          {canManageSchema && (
           <FieldsDropdown
             fields={collectionFields}
             searchQuery={fieldSearchQuery}
@@ -2195,6 +2211,7 @@ const CMS = React.memo(function CMS() {
             onToggleVisibility={handleToggleFieldVisibility}
             onReorder={handleReorderFields}
           />
+          )}
 
           <Button
             size="sm"
@@ -2233,10 +2250,12 @@ const CMS = React.memo(function CMS() {
                 This collection has no fields. Add fields to start managing items.
               </EmptyDescription>
             </Empty>
+            {canManageSchema && (
             <Button onClick={() => { setEditingField(null); setFieldDialogOpen(true); }}>
               <Icon name="plus" />
               Add Field
             </Button>
+            )}
           </div>
         ) : (
           <>

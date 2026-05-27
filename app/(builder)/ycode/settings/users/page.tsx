@@ -15,18 +15,22 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Spinner } from '@/components/ui/spinner';
 import { getUserInitials, generateUserColor } from '@/lib/collaboration-utils';
 import { useAuthStore } from '@/stores/useAuthStore';
+import { useRole } from '@/hooks/use-role';
 
 interface ActiveUser {
   id: string;
   email: string;
   display_name: string | null;
   avatar_url: string | null;
+  role?: string;
   created_at: string;
   last_sign_in_at: string | null;
 }
@@ -34,28 +38,28 @@ interface ActiveUser {
 interface PendingInvite {
   id: string;
   email: string;
+  role?: string;
   invited_at: string;
 }
 
 export default function UsersSettingsPage() {
   const router = useRouter();
   const currentUser = useAuthStore((state) => state.user);
+  const { canManageMembers, role: clientRole } = useRole();
 
   const [activeUsers, setActiveUsers] = useState<ActiveUser[]>([]);
   const [pendingInvites, setPendingInvites] = useState<PendingInvite[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Invite form state
   const [inviteEmail, setInviteEmail] = useState('');
+  const [inviteRole, setInviteRole] = useState<string>('designer');
   const [isInviting, setIsInviting] = useState(false);
   const [inviteError, setInviteError] = useState<string | null>(null);
   const [inviteSuccess, setInviteSuccess] = useState<string | null>(null);
 
-  // Delete dialog state
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [userToDelete, setUserToDelete] = useState<{ id: string; email: string; type: 'user' | 'invite' } | null>(null);
 
-  // Fetch users on mount
   useEffect(() => {
     fetchUsers();
   }, []);
@@ -78,7 +82,6 @@ export default function UsersSettingsPage() {
   const handleInvite = useCallback(async () => {
     if (!inviteEmail.trim()) return;
 
-    // Basic email validation
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(inviteEmail)) {
       setInviteError('Please enter a valid email address');
@@ -95,6 +98,7 @@ export default function UsersSettingsPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           email: inviteEmail.trim(),
+          role: inviteRole,
           redirectTo: window.location.origin + '/ycode/accept-invite',
         }),
       });
@@ -110,19 +114,18 @@ export default function UsersSettingsPage() {
       setInviteSuccess(`Invitation sent to ${invitedEmail}`);
       setInviteEmail('');
 
-      // Add to pending invites list immediately
       if (result.data?.user) {
         setPendingInvites((prev) => [
           {
             id: result.data.user.id,
             email: invitedEmail,
+            role: result.data.role || inviteRole,
             invited_at: new Date().toISOString(),
           },
           ...prev,
         ]);
       }
 
-      // Clear success message after a few seconds
       setTimeout(() => setInviteSuccess(null), 3000);
     } catch (error) {
       console.error('Failed to send invite:', error);
@@ -130,7 +133,7 @@ export default function UsersSettingsPage() {
     } finally {
       setIsInviting(false);
     }
-  }, [inviteEmail]);
+  }, [inviteEmail, inviteRole]);
 
   const handleDelete = async () => {
     if (!userToDelete) return;
@@ -140,15 +143,23 @@ export default function UsersSettingsPage() {
         method: 'DELETE',
       });
 
-      if (response.ok) {
+      const result = await response.json();
+
+      if (response.ok && result.data?.success) {
         if (userToDelete.type === 'user') {
           setActiveUsers(activeUsers.filter(u => u.id !== userToDelete.id));
         } else {
           setPendingInvites(pendingInvites.filter(i => i.id !== userToDelete.id));
         }
+      } else {
+        console.error('Failed to delete user:', result.error);
+        setInviteError(result.error || 'Failed to remove user');
+        setTimeout(() => setInviteError(null), 5000);
       }
     } catch (error) {
       console.error('Failed to delete user:', error);
+      setInviteError('Failed to remove user');
+      setTimeout(() => setInviteError(null), 5000);
     } finally {
       setShowDeleteDialog(false);
       setUserToDelete(null);
@@ -177,6 +188,32 @@ export default function UsersSettingsPage() {
     }
   };
 
+  const handleChangeRole = async (userId: string, newRole: string) => {
+    try {
+      const response = await fetch(`/ycode/api/auth/users?id=${userId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ role: newRole }),
+      });
+
+      const result = await response.json();
+
+      if (response.ok && result.data?.success) {
+        setActiveUsers((prev) =>
+          prev.map((u) => u.id === userId ? { ...u, role: newRole } : u)
+        );
+      } else {
+        console.error('Failed to change role:', result.error);
+        setInviteError(result.error || 'Failed to change role');
+        setTimeout(() => setInviteError(null), 5000);
+      }
+    } catch (error) {
+      console.error('Failed to change role:', error);
+      setInviteError('Failed to change role');
+      setTimeout(() => setInviteError(null), 5000);
+    }
+  };
+
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleDateString('en-US', {
       year: 'numeric',
@@ -190,16 +227,17 @@ export default function UsersSettingsPage() {
     return formatDate(dateString);
   };
 
+  const canManage = canManageMembers;
+
   return (
     <div className="p-8">
       <div className="max-w-3xl mx-auto">
 
-        {/* Page Header */}
         <header className="pt-8 pb-3">
           <span className="text-base font-medium">Users</span>
         </header>
 
-        {/* Invite User Section */}
+        {canManage && (
         <div className="flex flex-col gap-6 bg-secondary/20 p-8 rounded-lg">
           <header>
             <FieldLegend>Invite user</FieldLegend>
@@ -225,6 +263,16 @@ export default function UsersSettingsPage() {
               disabled={isInviting}
               className="flex-1"
             />
+            <Select value={inviteRole} onValueChange={setInviteRole}>
+              <SelectTrigger className="w-[120px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="admin">Admin</SelectItem>
+                <SelectItem value="designer">Designer</SelectItem>
+                <SelectItem value="editor">Editor</SelectItem>
+              </SelectContent>
+            </Select>
             <Button
               onClick={handleInvite}
               disabled={isInviting || !inviteEmail.trim()}
@@ -241,8 +289,8 @@ export default function UsersSettingsPage() {
             <p className="text-xs text-green-500">{inviteSuccess}</p>
           )}
         </div>
+        )}
 
-        {/* Active Users Section */}
         <header className="pt-10 pb-3">
           <span className="text-base font-medium">Active users</span>
         </header>
@@ -263,14 +311,12 @@ export default function UsersSettingsPage() {
             <div className="border-t -mb-4 divide-y">
               {[...activeUsers]
                 .sort((a, b) => {
-                  // Current user first
                   if (a.id === currentUser?.id) return -1;
                   if (b.id === currentUser?.id) return 1;
                   return 0;
                 })
                 .map((user) => (
                 <div key={user.id} className="py-4 flex items-center gap-4">
-                  {/* Avatar */}
                   <div
                     className="size-8 rounded-full bg-neutral-700 flex items-center justify-center text-xs font-medium text-white shrink-0 overflow-hidden"
                     style={{ backgroundColor: user.avatar_url ? undefined : generateUserColor(user.id) }}
@@ -298,6 +344,9 @@ export default function UsersSettingsPage() {
                       {user.display_name && (
                         <span className="text-xs text-muted-foreground">{user.email}</span>
                       )}
+                      {user.role && (
+                        <span className="text-[10px] text-muted-foreground bg-secondary px-1.5 py-0.5 rounded capitalize">{user.role}</span>
+                      )}
                     </div>
                     <div className="text-xs text-muted-foreground">
                       Joined {formatDate(user.created_at)} · Last seen: {formatLastSeen(user.last_sign_in_at)}
@@ -317,17 +366,36 @@ export default function UsersSettingsPage() {
                         >
                           My profile
                         </DropdownMenuItem>
-                      ) : (
-                        <DropdownMenuItem
-                          className="text-destructive focus:text-destructive"
-                          onClick={() => {
-                            setUserToDelete({ id: user.id, email: user.email, type: 'user' });
-                            setShowDeleteDialog(true);
-                          }}
-                        >
-                          Remove user
+                      ) : user.role === 'owner' ? (
+                        <DropdownMenuItem disabled>
+                          Owner
                         </DropdownMenuItem>
-                      )}
+                      ) : canManage ? (
+                        <>
+                          <DropdownMenuItem
+                            disabled={user.role === 'designer'}
+                            onClick={() => handleChangeRole(user.id, 'designer')}
+                          >
+                            Set as Designer
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            disabled={user.role === 'editor'}
+                            onClick={() => handleChangeRole(user.id, 'editor')}
+                          >
+                            Set as Editor
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem
+                            className="text-destructive focus:text-destructive"
+                            onClick={() => {
+                              setUserToDelete({ id: user.id, email: user.email, type: 'user' });
+                              setShowDeleteDialog(true);
+                            }}
+                          >
+                            Remove user
+                          </DropdownMenuItem>
+                        </>
+                      ) : null}
                     </DropdownMenuContent>
                   </DropdownMenu>
                 </div>
@@ -340,7 +408,6 @@ export default function UsersSettingsPage() {
           )}
         </div>
 
-        {/* Pending Invites Section */}
         <header className="pt-10 pb-3">
           <span className="text-base font-medium">Pending invites</span>
         </header>
@@ -361,7 +428,6 @@ export default function UsersSettingsPage() {
             <div className="border-t -mb-4 divide-y">
               {pendingInvites.map((invite) => (
                 <div key={invite.id} className="py-4 flex items-center gap-4">
-                  {/* Avatar */}
                   <div
                     className="size-8 rounded-full flex items-center justify-center text-xs font-medium text-white shrink-0 opacity-50"
                     style={{ backgroundColor: generateUserColor(invite.id) }}
@@ -375,12 +441,16 @@ export default function UsersSettingsPage() {
                       <span className="text-xs text-muted-foreground bg-secondary px-1.5 py-0.5 rounded">
                         Pending
                       </span>
+                      {invite.role && (
+                        <span className="text-[10px] text-muted-foreground bg-secondary px-1.5 py-0.5 rounded capitalize">{invite.role}</span>
+                      )}
                     </div>
                     <div className="text-xs text-muted-foreground">
                       Invited {formatDate(invite.invited_at)}
                     </div>
                   </div>
 
+                  {canManage && (
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                       <Button variant="secondary" size="xs">
@@ -404,6 +474,7 @@ export default function UsersSettingsPage() {
                       </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
+                  )}
                 </div>
               ))}
             </div>
@@ -416,7 +487,6 @@ export default function UsersSettingsPage() {
 
       </div>
 
-      {/* Delete/Cancel Confirmation Dialog */}
       <ConfirmDialog
         open={showDeleteDialog}
         onOpenChange={setShowDeleteDialog}

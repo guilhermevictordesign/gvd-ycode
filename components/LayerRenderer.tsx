@@ -471,6 +471,8 @@ const LayerItemImpl: React.FC<{
   const isDragging = activeLayerId === layer.id;
   const textEditable = isTextEditable(layer);
 
+  const isEditor = useAuthStore((state) => state.role === 'editor');
+
   // Collaboration layer locking - use unified resource lock system
   const currentUserId = useAuthStore((state) => state.user?.id);
   const lockKey = getResourceLockKey(RESOURCE_TYPES.LAYER, layer.id);
@@ -3371,6 +3373,7 @@ const LayerItemImpl: React.FC<{
         onLayerSelect={onLayerClick}
         liveLayerUpdates={liveLayerUpdates}
         liveComponentUpdates={liveComponentUpdates}
+        readOnly={isEditor}
       >
         {content}
       </LayerContextMenu>
