@@ -28,6 +28,13 @@ interface CollectionsState {
   itemsTotalCount: Record<string, number>; // keyed by collection_id (UUID) - total count for pagination
   lastItemsQuery: Record<string, ItemsQueryParams>; // keyed by collection_id — last loadItems params
   selectedCollectionId: string | null; // UUID
+  /**
+   * Slugs of items referenced by link fields but not present in the currently
+   * loaded `items` (e.g. cross-collection refs or items on a different page).
+   * Keyed by item ID. `null` marks an item id we already tried to resolve and
+   * found no slug for — prevents repeated fetch attempts.
+   */
+  crossCollectionSlugs: Record<string, string | null>;
   isLoading: boolean;
   error: string | null;
 }
@@ -55,6 +62,7 @@ interface CollectionsActions {
   getDropdownItems: (collectionId: string) => Promise<Array<{ id: string; label: string }>>;
   searchAndMergeItems: (collectionId: string, query: string, limit?: number) => Promise<Array<{ id: string; label: string }>>;
   ensureItemLoaded: (collectionId: string, itemId: string) => Promise<void>;
+  loadMissingItemSlugs: (itemIds: string[]) => Promise<void>;
   createItem: (collectionId: string, values: Record<string, any>, statusAction?: StatusAction) => Promise<CollectionItemWithValues>;
   updateItem: (collectionId: string, itemId: string, values: Record<string, any>) => Promise<void>;
   deleteItem: (collectionId: string, itemId: string) => Promise<void>;
@@ -84,6 +92,7 @@ export const useCollectionsStore = create<CollectionsStore>((set, get) => ({
   itemsTotalCount: {},
   lastItemsQuery: {},
   selectedCollectionId: null,
+  crossCollectionSlugs: {},
   isLoading: false,
   error: null,
 
@@ -1292,6 +1301,32 @@ export const useCollectionsStore = create<CollectionsStore>((set, get) => ({
       });
     } catch (error) {
       console.error('Failed to hydrate collection item:', error);
+    }
+  },
+
+  loadMissingItemSlugs: async (itemIds: string[]) => {
+    if (itemIds.length === 0) return;
+
+    const { crossCollectionSlugs } = get();
+    const idsToFetch = itemIds.filter(id => !(id in crossCollectionSlugs));
+    if (idsToFetch.length === 0) return;
+
+    try {
+      const response = await collectionsApi.getItemSlugs(idsToFetch);
+      if (response.error || !response.data) return;
+
+      const fetchedSlugs = response.data.slugs;
+      set(state => {
+        const next: Record<string, string | null> = { ...state.crossCollectionSlugs };
+        // Mark every requested id so we never re-fetch — items without a slug
+        // are recorded as null instead of being omitted from the cache.
+        for (const id of idsToFetch) {
+          next[id] = fetchedSlugs[id] ?? null;
+        }
+        return { crossCollectionSlugs: next };
+      });
+    } catch (error) {
+      console.error('Failed to load missing item slugs:', error);
     }
   },
 }));

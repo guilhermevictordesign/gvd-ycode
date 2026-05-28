@@ -3,7 +3,7 @@ import { escapeHtml } from '@/lib/escape-html';
 import { getSupabaseAdmin } from '@/lib/supabase-server';
 import { getKnexClient } from '@/lib/knex-client';
 import { buildSlugPath, buildDynamicPageUrl, buildLocalizedSlugPath, buildLocalizedDynamicPageUrl, detectLocaleFromPath, matchPageWithTranslatedSlugs, matchDynamicPageWithTranslatedSlugs } from '@/lib/page-utils';
-import { getItemWithValues, getItemsWithValues, getItemsWithValuesByIds, getItemIdsByFieldValue, getItemsByCollectionId } from '@/lib/repositories/collectionItemRepository';
+import { getItemWithValues, getItemsWithValues, getItemsWithValuesByIds, getItemIdsByFieldValue, getItemsByCollectionId, getSlugsByItemIds } from '@/lib/repositories/collectionItemRepository';
 import { getValuesByItemIds } from '@/lib/repositories/collectionItemValueRepository';
 import { getFieldsByCollectionId } from '@/lib/repositories/collectionFieldRepository';
 import { enrichItemsWithCountValues } from '@/lib/repositories/collectionCountRepository';
@@ -3160,24 +3160,8 @@ async function enrichSlugsFromLinkFields(
   const missingItemIds = extractCrossCollectionItemIds(items, linkFieldIds, existingSlugs);
   if (missingItemIds.length === 0) return;
 
-  const refItems = await getItemsWithValuesByIds(missingItemIds, isPublished);
-  const refCollectionIds = new Set(Object.values(refItems).map(i => i.collection_id));
-
-  const fieldsByCollection = new Map<string, CollectionField[]>();
-  await Promise.all(
-    Array.from(refCollectionIds).map(async (collId) => {
-      const fields = await getFieldsByCollectionId(collId, isPublished);
-      fieldsByCollection.set(collId, fields);
-    })
-  );
-
-  for (const refItem of Object.values(refItems)) {
-    const fields = fieldsByCollection.get(refItem.collection_id);
-    const slugField = fields?.find(f => f.key === 'slug');
-    if (slugField && refItem.values[slugField.id]) {
-      existingSlugs[refItem.id] = refItem.values[slugField.id];
-    }
-  }
+  const refSlugs = await getSlugsByItemIds(missingItemIds, isPublished);
+  Object.assign(existingSlugs, refSlugs);
 }
 
 /**

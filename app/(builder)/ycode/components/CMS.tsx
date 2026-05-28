@@ -40,7 +40,7 @@ import { parseMultiAssetFieldValue } from '@/lib/multi-asset-utils';
 import { type FieldType, findDisplayField, getItemDisplayName, getFieldIcon, isMultipleAssetField, findStatusFieldId, isDateFieldType } from '@/lib/collection-field-utils';
 import { CollectionStatusPill, parseStatusValue } from './CollectionStatusPill';
 import { extractPlainTextFromTiptap } from '@/lib/tiptap-utils';
-import { parseCollectionLinkValue, resolveCollectionLinkValue } from '@/lib/link-utils';
+import { extractCrossCollectionItemIds, parseCollectionLinkValue, resolveCollectionLinkValue } from '@/lib/link-utils';
 import { useEditorUrl } from '@/hooks/use-editor-url';
 import { useRole } from '@/hooks/use-role';
 import FieldsDropdown from './FieldsDropdown';
@@ -474,6 +474,9 @@ const CMS = React.memo(function CMS() {
   const totalItems = selectedCollectionId ? (itemsTotalCount[selectedCollectionId] || 0) : 0;
 
   // Build slug map across ALL loaded collections for cross-collection link resolution
+  const crossCollectionSlugs = useCollectionsStore((state) => state.crossCollectionSlugs);
+  const loadMissingItemSlugs = useCollectionsStore((state) => state.loadMissingItemSlugs);
+
   const allCollectionItemSlugs = useMemo(() => {
     const slugs: Record<string, string> = {};
     for (const collectionId of Object.keys(items)) {
@@ -487,8 +490,35 @@ const CMS = React.memo(function CMS() {
         }
       }
     }
+    // Merge in slugs resolved for items not loaded in any collection
+    // (cross-collection refs, or items on a different page of the current one).
+    for (const [itemId, slug] of Object.entries(crossCollectionSlugs)) {
+      if (slug && !slugs[itemId]) {
+        slugs[itemId] = slug;
+      }
+    }
     return slugs;
-  }, [items, fields]);
+  }, [items, fields, crossCollectionSlugs]);
+
+  // Resolve slug values for collection items referenced by link fields in the
+  // currently displayed items but missing from `allCollectionItemSlugs`. Without
+  // this the Page-link column would render `/{slug}` placeholders until the
+  // referenced collection happens to be loaded.
+  useEffect(() => {
+    if (!selectedCollectionId) return;
+    const currentItems = items[selectedCollectionId];
+    const currentFields = fields[selectedCollectionId];
+    if (!currentItems?.length || !currentFields?.length) return;
+
+    const linkFieldIds = currentFields.filter(f => f.type === 'link').map(f => f.id);
+    if (linkFieldIds.length === 0) return;
+
+    const missingIds = extractCrossCollectionItemIds(currentItems, linkFieldIds, allCollectionItemSlugs)
+      .filter(id => !(id in crossCollectionSlugs));
+    if (missingIds.length === 0) return;
+
+    loadMissingItemSlugs(missingIds);
+  }, [selectedCollectionId, items, fields, allCollectionItemSlugs, crossCollectionSlugs, loadMissingItemSlugs]);
 
   // Drag and drop sensors
   const sensors = useSensors(

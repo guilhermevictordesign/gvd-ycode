@@ -571,6 +571,13 @@ export const collectionsApi = {
     return apiRequest<CollectionItemWithValues>(`/ycode/api/collections/${collectionId}/items/${itemId}`);
   },
 
+  async getItemSlugs(itemIds: string[]): Promise<ApiResponse<{ slugs: Record<string, string> }>> {
+    return apiRequest<{ slugs: Record<string, string> }>('/ycode/api/collections/items/slugs', {
+      method: 'POST',
+      body: JSON.stringify({ itemIds }),
+    });
+  },
+
   async createItem(collectionId: string, values: Record<string, any>, statusAction?: StatusAction): Promise<ApiResponse<CollectionItemWithValues>> {
     return apiRequest<CollectionItemWithValues>(`/ycode/api/collections/${collectionId}/items`, {
       method: 'POST',

@@ -320,6 +320,8 @@ export interface ResolveFieldLinkOptions {
 /**
  * Extract collection_item_ids referenced by link field values that point to
  * dynamic pages. Used to pre-fetch slugs for cross-collection link resolution.
+ * Skips dynamic-resolution keywords (`current-page`, `ref-*`, etc.) since those
+ * are resolved at render time and don't map to a concrete item id.
  */
 export function extractCrossCollectionItemIds(
   items: { values: Record<string, string> }[],
@@ -332,12 +334,14 @@ export function extractCrossCollectionItemIds(
       const rawValue = item.values[fieldId];
       if (!rawValue) continue;
       const linkValue = parseCollectionLinkValue(rawValue);
-      if (linkValue?.type === 'page' && linkValue.page?.collection_item_id) {
-        const refItemId = linkValue.page.collection_item_id;
-        if (!existingSlugs?.[refItemId]) {
-          itemIds.add(refItemId);
-        }
-      }
+      if (linkValue?.type !== 'page' || !linkValue.page?.collection_item_id) continue;
+
+      const refItemId = linkValue.page.collection_item_id;
+      if (isCollectionItemKeyword(refItemId)) continue;
+      if (refItemId.startsWith(REF_PAGE_PREFIX) || refItemId.startsWith(REF_COLLECTION_PREFIX)) continue;
+      if (existingSlugs?.[refItemId]) continue;
+
+      itemIds.add(refItemId);
     }
   }
   return Array.from(itemIds);

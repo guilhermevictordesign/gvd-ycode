@@ -1,7 +1,7 @@
 import { getSupabaseAdmin } from '@/lib/supabase-server';
 import { getKnexClient } from '@/lib/knex-client';
 import { SUPABASE_QUERY_LIMIT } from '@/lib/supabase-constants';
-import type { CollectionItem, CollectionItemWithValues } from '@/types';
+import type { CollectionField, CollectionItem, CollectionItemWithValues } from '@/types';
 import { randomUUID } from 'crypto';
 import { getFieldsByCollectionId } from '@/lib/repositories/collectionFieldRepository';
 import { getValuesByFieldId, getValuesByItemIds, getValuesByItemId } from '@/lib/repositories/collectionItemValueRepository';
@@ -673,6 +673,42 @@ export async function getItemsWithValuesByIds(
     result[item.id] = { ...item, values: valuesByItem[item.id] || {} };
   }
   return result;
+}
+
+/**
+ * Batch fetch slug values for arbitrary item IDs across collections.
+ * Returns a map keyed by item ID. Only items whose owning collection has a
+ * `slug` field with a non-empty value are included.
+ */
+export async function getSlugsByItemIds(
+  ids: string[],
+  is_published: boolean = false
+): Promise<Record<string, string>> {
+  if (ids.length === 0) return {};
+
+  const itemsByIds = await getItemsWithValuesByIds(ids, is_published);
+  const itemList = Object.values(itemsByIds);
+  if (itemList.length === 0) return {};
+
+  const refCollectionIds = Array.from(new Set(itemList.map(i => i.collection_id)));
+  const fieldsByCollection = new Map<string, CollectionField[]>();
+  await Promise.all(
+    refCollectionIds.map(async (collId) => {
+      const fields = await getFieldsByCollectionId(collId, is_published);
+      fieldsByCollection.set(collId, fields);
+    })
+  );
+
+  const slugs: Record<string, string> = {};
+  for (const item of itemList) {
+    const fields = fieldsByCollection.get(item.collection_id);
+    const slugField = fields?.find(f => f.key === 'slug');
+    const slugValue = slugField ? item.values[slugField.id] : undefined;
+    if (slugValue) {
+      slugs[item.id] = slugValue;
+    }
+  }
+  return slugs;
 }
 
 /**
