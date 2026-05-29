@@ -768,9 +768,36 @@ export const useComponentsStore = create<ComponentsStore>((set, get) => {
       });
     },
 
-    // Rename a component (convenience method)
+    // Rename a component with optimistic update (rolls back on failure)
     renameComponent: async (id, newName) => {
-      await get().updateComponent(id, { name: newName });
+      const previousName = get().components.find((c) => c.id === id)?.name;
+
+      set((state) => ({
+        components: state.components.map((c) => (c.id === id ? { ...c, name: newName } : c)),
+      }));
+
+      try {
+        const response = await fetch(`/ycode/api/components/${id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: newName }),
+        });
+
+        const result = await response.json();
+        if (result.error) throw new Error(result.error);
+
+        set((state) => ({
+          components: state.components.map((c) => (c.id === id ? result.data : c)),
+        }));
+      } catch (error) {
+        console.error('Failed to rename component:', error);
+        if (previousName !== undefined) {
+          set((state) => ({
+            components: state.components.map((c) => (c.id === id ? { ...c, name: previousName } : c)),
+            error: 'Failed to rename component',
+          }));
+        }
+      }
     },
 
     // Get component by ID (convenience method)

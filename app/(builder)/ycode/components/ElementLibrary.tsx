@@ -39,6 +39,7 @@ import { toast } from 'sonner';
 import { componentsApi } from '@/lib/api';
 import type { Layer } from '@/types';
 import ComponentCard from './ComponentCard';
+import RenameComponentDialog from './RenameComponentDialog';
 import SaveLayoutDialog from './SaveLayoutDialog';
 import { usePagesStore } from '@/stores/usePagesStore';
 import { useEditorStore } from '@/stores/useEditorStore';
@@ -300,6 +301,7 @@ export default function ElementLibrary({ isOpen, onClose, liveLayerUpdates }: El
   const componentDrafts = useComponentsStore((s) => s.componentDrafts);
   const updateComponentDraft = useComponentsStore((s) => s.updateComponentDraft);
   const deleteComponent = useComponentsStore((s) => s.deleteComponent);
+  const renameComponent = useComponentsStore((s) => s.renameComponent);
   const getDeletePreview = useComponentsStore((s) => s.getDeletePreview);
   const loadComponentDraft = useComponentsStore((s) => s.loadComponentDraft);
   const getComponentById = useComponentsStore((s) => s.getComponentById);
@@ -321,6 +323,8 @@ export default function ElementLibrary({ isOpen, onClose, liveLayerUpdates }: El
     return 'elements';
   });
   const [componentSearch, setComponentSearch] = useState('');
+  const [renameDialogOpen, setRenameDialogOpen] = useState(false);
+  const [componentToRename, setComponentToRename] = useState<Component | null>(null);
   const tabRefs = React.useRef<Record<string, HTMLDivElement | null>>({});
 
   const circularComponentIds = useMemo(() => {
@@ -1380,6 +1384,24 @@ export default function ElementLibrary({ isOpen, onClose, liveLayerUpdates }: El
     onClose();
   };
 
+  const handleStartRename = (component: Component) => {
+    setComponentToRename(component);
+    setRenameDialogOpen(true);
+  };
+
+  const handleConfirmRename = async (newName: string) => {
+    if (!componentToRename) return;
+
+    const trimmed = newName.trim();
+    if (!trimmed || trimmed === componentToRename.name) return;
+
+    try {
+      await renameComponent(componentToRename.id, trimmed);
+    } catch (error) {
+      console.error('Failed to rename component:', error);
+    }
+  };
+
   const handleDeleteClick = async (component: Component, e: React.MouseEvent) => {
     e.stopPropagation();
     setComponentToDelete(component);
@@ -1642,6 +1664,7 @@ export default function ElementLibrary({ isOpen, onClose, liveLayerUpdates }: El
                           circularComponentIds.has(component.id) && 'opacity-40 pointer-events-none',
                           isHidden && 'hidden',
                         )}
+                        onStartRename={() => handleStartRename(component)}
                         onClick={() => handleAddComponent(component.id)}
                         onMouseDown={(e) => {
                           if (e.button !== 0) return;
@@ -1683,6 +1706,7 @@ export default function ElementLibrary({ isOpen, onClose, liveLayerUpdates }: El
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end">
                               <DropdownMenuItem onClick={(e) => handleEditComponent(component, e)}>Edit</DropdownMenuItem>
+                              <DropdownMenuItem onSelect={() => handleStartRename(component)}>Rename</DropdownMenuItem>
                               <DropdownMenuItem onClick={(e) => handleDeleteClick(component, e)}>Delete</DropdownMenuItem>
                             </DropdownMenuContent>
                           </DropdownMenu>
@@ -1695,6 +1719,13 @@ export default function ElementLibrary({ isOpen, onClose, liveLayerUpdates }: El
             )}
           </TabsContent>
         </Tabs>
+
+        <RenameComponentDialog
+          open={renameDialogOpen}
+          onOpenChange={setRenameDialogOpen}
+          onConfirm={handleConfirmRename}
+          currentName={componentToRename?.name}
+        />
 
         <SaveLayoutDialog
           open={isEditLayoutDialogOpen}

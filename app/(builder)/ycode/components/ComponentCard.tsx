@@ -17,6 +17,8 @@ interface ComponentCardProps {
   /** Optional actions rendered to the right of the name (e.g. dropdown menu) */
   actions?: React.ReactNode;
   className?: string;
+  /** Triggered by double-clicking the name (e.g. to start renaming) */
+  onStartRename?: () => void;
 }
 
 export default function ComponentCard({
@@ -26,6 +28,7 @@ export default function ComponentCard({
   disabled = false,
   actions,
   className,
+  onStartRename,
 }: ComponentCardProps) {
   return (
     <div className={cn('group flex flex-col gap-1.5', className)}>
@@ -58,6 +61,7 @@ export default function ComponentCard({
         <span
           className="flex-1 truncate text-xs font-medium"
           title={component.name}
+          onDoubleClick={onStartRename}
         >
           {component.name}
         </span>
