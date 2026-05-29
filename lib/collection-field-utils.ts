@@ -13,6 +13,7 @@ import type {
   CollectionField,
   CollectionFieldType,
   CollectionItemWithValues,
+  CollectionVariable,
   Layer,
   VisibilityOperator,
 } from '@/types';
@@ -715,6 +716,18 @@ export function getAssetFieldTypeLabel(fieldType: CollectionFieldType): string {
 
 /** Virtual collection ID marker for multi-asset collections */
 export const MULTI_ASSET_COLLECTION_ID = '__multi_asset__';
+
+/**
+ * Whether a collection binding points to a real, selected source.
+ * Field-sourced bindings (reference/multi-asset/inverse) require a `source_field_id`,
+ * so an unbound multi-asset placeholder (virtual `id`, no field chosen yet) is not
+ * considered selected. Direct collections just require a non-empty `id`.
+ */
+export function hasBoundCollectionSource(collectionVariable?: CollectionVariable | null): boolean {
+  if (!collectionVariable) return false;
+  if (collectionVariable.source_field_type) return !!collectionVariable.source_field_id;
+  return !!collectionVariable.id;
+}
 
 /** Virtual field IDs for multi-asset collections (prefixed to avoid collision) */
 export const MULTI_ASSET_VIRTUAL_FIELDS = {

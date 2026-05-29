@@ -101,7 +101,7 @@ import { convertContentToValue, parseValueToContent } from '@/lib/cms-variables-
 import { createTextComponentVariableValue } from '@/lib/variable-utils';
 import { getRichTextValue, extractPlainTextFromTiptap, getSoleCmsFieldBinding } from '@/lib/tiptap-utils';
 import { DEFAULT_TEXT_STYLES, getTextStyle, getTiptapTextContent } from '@/lib/text-format-utils';
-import { buildFieldGroupsForLayer, getFieldIcon, isMultipleAssetField, MULTI_ASSET_COLLECTION_ID, SIMPLE_TEXT_FIELD_TYPES } from '@/lib/collection-field-utils';
+import { buildFieldGroupsForLayer, getFieldIcon, hasBoundCollectionSource, isMultipleAssetField, MULTI_ASSET_COLLECTION_ID, SIMPLE_TEXT_FIELD_TYPES } from '@/lib/collection-field-utils';
 import { getInverseReferenceFields } from '@/lib/collection-utils';
 
 // 7. Types
@@ -1230,7 +1230,9 @@ const RightSidebar = React.memo(function RightSidebar({
   const getDynamicPageSourceValue = useMemo(() => {
     if (!selectedLayer) return 'none';
     const collectionVariable = getCollectionVariable(selectedLayer);
-    if (!collectionVariable?.id) return 'none';
+    if (!collectionVariable) return 'none';
+    // Treat unbound bindings (e.g. multi-asset placeholder with no field chosen) as empty
+    if (!hasBoundCollectionSource(collectionVariable)) return 'none';
 
     // If source_field_id is set, check the type
     if (collectionVariable.source_field_id) {
@@ -2459,10 +2461,10 @@ const RightSidebar = React.memo(function RightSidebar({
                             <SelectValue placeholder="Select..." />
                           </SelectTrigger>
                           <SelectContent>
-                            {parentReferenceFields.length > 0 && (
+                            {parentMultiAssetFields.length > 0 && (
                               <SelectGroup>
-                                <SelectLabel>Reference fields</SelectLabel>
-                                {parentReferenceFields.map((field) => (
+                                <SelectLabel>Multi-asset fields</SelectLabel>
+                                {parentMultiAssetFields.map((field) => (
                                   <SelectItem key={field.id} value={field.id}>
                                     <span className="flex items-center gap-2">
                                       <Icon name={getFieldIcon(field.type)} className="size-3 text-muted-foreground shrink-0" />
@@ -2472,10 +2474,10 @@ const RightSidebar = React.memo(function RightSidebar({
                                 ))}
                               </SelectGroup>
                             )}
-                            {parentMultiAssetFields.length > 0 && (
+                            {parentReferenceFields.length > 0 && (
                               <SelectGroup>
-                                <SelectLabel>Multi-asset fields</SelectLabel>
-                                {parentMultiAssetFields.map((field) => (
+                                <SelectLabel>Reference fields</SelectLabel>
+                                {parentReferenceFields.map((field) => (
                                   <SelectItem key={field.id} value={field.id}>
                                     <span className="flex items-center gap-2">
                                       <Icon name={getFieldIcon(field.type)} className="size-3 text-muted-foreground shrink-0" />
@@ -2517,11 +2519,11 @@ const RightSidebar = React.memo(function RightSidebar({
                             <SelectValue placeholder="Select..." />
                           </SelectTrigger>
                           <SelectContent>
-                            {dynamicPageReferenceFields.length > 0 && (
+                            {dynamicPageMultiAssetFields.length > 0 && (
                               <SelectGroup>
-                                <SelectLabel>Reference fields</SelectLabel>
-                                {dynamicPageReferenceFields.map((field) => (
-                                  <SelectItem key={field.id} value={`field:${field.id}`}>
+                                <SelectLabel>Multi-asset fields</SelectLabel>
+                                {dynamicPageMultiAssetFields.map((field) => (
+                                  <SelectItem key={field.id} value={`multi_asset:${field.id}`}>
                                     <span className="flex items-center gap-2">
                                       <Icon name={getFieldIcon(field.type)} className="size-3 text-muted-foreground shrink-0" />
                                       {field.name}
@@ -2530,11 +2532,11 @@ const RightSidebar = React.memo(function RightSidebar({
                                 ))}
                               </SelectGroup>
                             )}
-                            {dynamicPageMultiAssetFields.length > 0 && (
+                            {dynamicPageReferenceFields.length > 0 && (
                               <SelectGroup>
-                                <SelectLabel>Multi-asset fields</SelectLabel>
-                                {dynamicPageMultiAssetFields.map((field) => (
-                                  <SelectItem key={field.id} value={`multi_asset:${field.id}`}>
+                                <SelectLabel>Reference fields</SelectLabel>
+                                {dynamicPageReferenceFields.map((field) => (
+                                  <SelectItem key={field.id} value={`field:${field.id}`}>
                                     <span className="flex items-center gap-2">
                                       <Icon name={getFieldIcon(field.type)} className="size-3 text-muted-foreground shrink-0" />
                                       {field.name}
@@ -2581,11 +2583,11 @@ const RightSidebar = React.memo(function RightSidebar({
                       ) : (
                         /* When not inside a parent collection and not dynamic, show collections as source options */
                         <Select
-                          value={getCollectionVariable(selectedLayer)?.id || ''}
+                          value={hasBoundCollectionSource(getCollectionVariable(selectedLayer)) ? getCollectionVariable(selectedLayer)?.id || '' : ''}
                           onValueChange={handleCollectionChange}
                         >
                           <SelectTrigger
-                            onClear={getCollectionVariable(selectedLayer)?.id
+                            onClear={hasBoundCollectionSource(getCollectionVariable(selectedLayer))
                               ? () => handleCollectionChange('none')
                               : undefined}
                           >
@@ -2615,8 +2617,8 @@ const RightSidebar = React.memo(function RightSidebar({
                     </div>
                   </div>
 
-                  {/* Sort By - only show if collection is selected */}
-                  {getCollectionVariable(selectedLayer)?.id && (
+                  {/* Sort By - only show if a real collection source is selected */}
+                  {hasBoundCollectionSource(getCollectionVariable(selectedLayer)) && (
                     <>
                       <div className="grid grid-cols-3">
                         <Label variant="muted">Sort by</Label>
@@ -2654,19 +2656,22 @@ const RightSidebar = React.memo(function RightSidebar({
                                   <SelectItem value="random">Random</SelectItem>
                                   <SelectItem value={SORT_INPUT_VALUE_OPTION}>Input value</SelectItem>
                                 </SelectGroup>
-                                <SelectSeparator />
-                                <SelectGroup>
-                                  <SelectLabel>Fields</SelectLabel>
-                                  {selectedCollectionFields.length > 0 &&
-                                    selectedCollectionFields.map((field) => (
-                                      <SelectItem key={field.id} value={field.id}>
-                                        <span className="flex items-center gap-2">
-                                          <Icon name={getFieldIcon(field.type)} className="size-3 text-muted-foreground shrink-0" />
-                                          {field.name}
-                                        </span>
-                                      </SelectItem>
-                                    ))}
-                                </SelectGroup>
+                                {selectedCollectionFields.length > 0 && (
+                                  <>
+                                    <SelectSeparator />
+                                    <SelectGroup>
+                                      <SelectLabel>Fields</SelectLabel>
+                                      {selectedCollectionFields.map((field) => (
+                                        <SelectItem key={field.id} value={field.id}>
+                                          <span className="flex items-center gap-2">
+                                            <Icon name={getFieldIcon(field.type)} className="size-3 text-muted-foreground shrink-0" />
+                                            {field.name}
+                                          </span>
+                                        </SelectItem>
+                                      ))}
+                                    </SelectGroup>
+                                  </>
+                                )}
                               </SelectContent>
                             </Select>
                           )}
@@ -2751,8 +2756,8 @@ const RightSidebar = React.memo(function RightSidebar({
                         </div>
                       </div>
 
-                      {/* Pagination - hidden for nested collections */}
-                      {!isNestedInCollection && (
+                      {/* Pagination - hidden for nested collections and slides */}
+                      {!isNestedInCollection && selectedLayer.name !== 'slide' && (
                         <div className="grid grid-cols-3">
                           <Label variant="muted">Pagination</Label>
                           <div className="col-span-2 *:w-full">
@@ -2775,7 +2780,7 @@ const RightSidebar = React.memo(function RightSidebar({
                       )}
 
                       {/* Pagination type and items per page - only show when pagination enabled */}
-                      {!isNestedInCollection && getCollectionVariable(selectedLayer)?.pagination?.enabled && (
+                      {!isNestedInCollection && selectedLayer.name !== 'slide' && getCollectionVariable(selectedLayer)?.pagination?.enabled && (
                         <>
                           <div className="grid grid-cols-3">
                             <Label variant="muted">Type</Label>
@@ -2906,8 +2911,8 @@ const RightSidebar = React.memo(function RightSidebar({
               onLayerUpdate={handleLayerUpdate}
             />
 
-            {/* Collection Filters - only for collection layers */}
-            {selectedLayer && getCollectionVariable(selectedLayer)?.id && (
+            {/* Collection Filters - only for layers bound to a real collection source */}
+            {selectedLayer && hasBoundCollectionSource(getCollectionVariable(selectedLayer)) && (
               <CollectionFiltersSettings
                 layer={selectedLayer}
                 onLayerUpdate={handleLayerUpdate}
