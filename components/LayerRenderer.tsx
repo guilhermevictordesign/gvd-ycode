@@ -1418,6 +1418,7 @@ const LayerItemImpl: React.FC<{
             pageCollectionCounts: {},
             currentItemId: item.id,
             pageCollectionItemId,
+            timezone,
           })
         );
       }
@@ -1445,7 +1446,7 @@ const LayerItemImpl: React.FC<{
     }
 
     return items;
-  }, [collectionId, allCollectionItems, sourceFieldId, sourceFieldType, sourceFieldSource, collectionLayerData, pageCollectionItemData, collectionLayerItemId, pageCollectionItemId, getAsset, collectionVariable?.filters, collectionVariable?.limit, collectionVariable?.offset, collectionVariable?.pagination, isEditMode]);
+  }, [collectionId, allCollectionItems, sourceFieldId, sourceFieldType, sourceFieldSource, collectionLayerData, pageCollectionItemData, collectionLayerItemId, pageCollectionItemId, getAsset, collectionVariable?.filters, collectionVariable?.limit, collectionVariable?.offset, collectionVariable?.pagination, isEditMode, timezone]);
 
   const optionsSourceSort = layer.settings?.optionsSource;
 
@@ -1814,6 +1815,7 @@ const LayerItemImpl: React.FC<{
       pageCollectionCounts,
       currentItemId: collectionLayerItemId,
       pageCollectionItemId,
+      timezone,
     });
     if (!isVisible) {
       return null;

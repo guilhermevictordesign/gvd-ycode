@@ -51,6 +51,7 @@ import {
   isDateFieldType,
   SELF_OPERATORS,
 } from '@/lib/collection-field-utils';
+import { clampDateInputValue } from '@/lib/date-format-utils';
 import { getCollectionVariable, isInputInsideFilter, resolveFilterInputId, findLayerById } from '@/lib/layer-utils';
 import { useEditorStore } from '@/stores/useEditorStore';
 import { usePagesStore } from '@/stores/usePagesStore';
@@ -609,6 +610,11 @@ export default function CollectionFiltersSettings({
     const icon = getFieldIcon(fieldType);
     const displayName = getFieldName(condition.fieldId || '');
     const referenceCollectionId = getReferenceCollectionId(condition);
+    // Date fields use a dropdown for value mode; the "Filter form input" option
+    // is the only place that reveals the link-to-input target icon. Falls back
+    // to a linked input for conditions saved before `dateInput` existed.
+    const isDateInputMode = isDateFieldType(fieldType)
+      && (condition.dateInput === true || !!condition.inputLayerId);
 
     return (
       <React.Fragment key={condition.id}>
@@ -773,12 +779,14 @@ export default function CollectionFiltersSettings({
                     ) : isDateFieldType(fieldType) ? (
                       <div className="flex flex-col gap-1.5">
                         <Select
-                          value={isDatePreset(condition.value) ? condition.value : (condition.value ? '_custom' : '')}
+                          value={isDatePreset(condition.value) ? condition.value : (isDateInputMode ? '_input' : '_custom')}
                           onValueChange={(v) => {
-                            if (v === '_custom') {
-                              handleValueChange(group.id, condition.id, '');
+                            if (v === '_input') {
+                              patchCondition(group.id, condition.id, { dateInput: true, value: '' });
+                            } else if (v === '_custom') {
+                              patchCondition(group.id, condition.id, { dateInput: false, value: '' });
                             } else {
-                              handleValueChange(group.id, condition.id, v);
+                              patchCondition(group.id, condition.id, { dateInput: false, value: v });
                             }
                           }}
                         >
@@ -787,18 +795,19 @@ export default function CollectionFiltersSettings({
                           </SelectTrigger>
                           <SelectContent>
                             <SelectGroup>
+                              <SelectItem value="_custom">Custom date</SelectItem>
                               {DATE_PRESET_OPTIONS.map((opt) => (
                                 <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
                               ))}
-                              <SelectItem value="_custom">Custom date...</SelectItem>
+                              <SelectItem value="_input">Filter form input</SelectItem>
                             </SelectGroup>
                           </SelectContent>
                         </Select>
-                        {!isDatePreset(condition.value) && (
+                        {!isDatePreset(condition.value) && !isDateInputMode && (
                           <Input
                             type="date"
                             value={condition.value || ''}
-                            onChange={(e) => handleValueChange(group.id, condition.id, e.target.value)}
+                            onChange={(e) => patchCondition(group.id, condition.id, { value: clampDateInputValue(e.target.value) })}
                           />
                         )}
                       </div>
@@ -817,23 +826,25 @@ export default function CollectionFiltersSettings({
                       />
                     )}
                   </div>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        variant="secondary"
-                        onClick={(e) => {
-                          const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-                          handlePickInputForCondition(group.id, condition.id, {
-                            x: rect.left + rect.width / 2,
-                            y: rect.top + rect.height / 2,
-                          });
-                        }}
-                      >
-                        <Icon name="crosshair" />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>Link to filter input</TooltipContent>
-                  </Tooltip>
+                  {(!isDateFieldType(fieldType) || isDateInputMode) && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          variant="secondary"
+                          onClick={(e) => {
+                            const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                            handlePickInputForCondition(group.id, condition.id, {
+                              x: rect.left + rect.width / 2,
+                              y: rect.top + rect.height / 2,
+                            });
+                          }}
+                        >
+                          <Icon name="crosshair" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>Link to filter input</TooltipContent>
+                    </Tooltip>
+                  )}
                 </div>
               )}
 
@@ -863,7 +874,7 @@ export default function CollectionFiltersSettings({
                         <Input
                           type="date"
                           value={condition.value2 || ''}
-                          onChange={(e) => handleValue2Change(group.id, condition.id, e.target.value)}
+                          onChange={(e) => patchCondition(group.id, condition.id, { value2: clampDateInputValue(e.target.value) })}
                         />
                       </div>
                       <Tooltip>

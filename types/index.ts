@@ -464,6 +464,8 @@ export interface Layer {
   // Non-date conditions are baked to a boolean at export time; only
   // date-preset conditions are re-evaluated client-side against the current date.
   _dynamicVisibilityRule?: {
+    /** Project timezone (IANA) for resolving date presets on the client. */
+    timezone?: string;
     groups: Array<{ conditions: DynamicVisibilityCondition[] }>;
   };
   // SSR-only property for filterable collection config (when collection has linked filter inputs)
@@ -1396,6 +1398,11 @@ export interface VisibilityCondition {
   // For linking filter value to an input layer inside a Filter
   inputLayerId?: string;
   inputLayerId2?: string; // For second bound (e.g. 'is_between')
+  // Date fields only: marks the value as sourced from a filter form input
+  // (vs. a preset or custom date). Persisted so the UI stays in input mode
+  // even before an input is linked. Absent on conditions created before this
+  // existed — those fall back to linked-state/custom inference.
+  dateInput?: boolean;
 }
 
 export interface VisibilityConditionGroup {
@@ -1413,7 +1420,7 @@ export interface ConditionalVisibility {
  * all other conditions carry their export-time result, baked in.
  */
 export type DynamicVisibilityCondition =
-  | { dynamic: true; operator: VisibilityOperator; value: string; fieldValue: string }
+  | { dynamic: true; operator: VisibilityOperator; value: string; fieldValue: string; dateOnly?: boolean }
   | { dynamic: false; result: boolean };
 
 // Localisation Types

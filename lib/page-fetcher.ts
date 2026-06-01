@@ -2361,6 +2361,7 @@ export async function resolveCollectionLayers(
                 pageCollectionCounts: {},
                 currentItemId: item.id,
                 pageCollectionItemId: pageCollectionItemId ?? parentCollectionItemId,
+                timezone,
               })
             );
           }
@@ -2825,7 +2826,7 @@ export async function resolveCollectionLayers(
   // Third pass: Filter layers by conditional visibility
   // We need to compute collection counts first, then filter
   // parentItemValues is the page collection data for dynamic pages
-  const filteredResult = filterByVisibility(resultWithPagination, undefined, parentItemValues, pageCollectionItemId ?? parentCollectionItemId);
+  const filteredResult = filterByVisibility(resultWithPagination, undefined, parentItemValues, pageCollectionItemId ?? parentCollectionItemId, timezone);
 
   return filteredResult;
 }
@@ -2922,6 +2923,7 @@ function filterByVisibility(
   collectionLayerData?: Record<string, string>,
   pageCollectionData?: Record<string, string> | null,
   pageCollectionItemId?: string | null,
+  timezone: string = 'UTC',
 ): Layer[] {
   const pageCollectionCounts = computeCollectionCounts(layers);
   const filterableCollectionIds = findFilterableCollectionIds(layers);
@@ -2942,6 +2944,7 @@ function filterByVisibility(
         pageCollectionCounts,
         currentItemId: effectiveCurrentItemId,
         pageCollectionItemId,
+        timezone,
       });
       const filterTarget = getFilterableCollectionTarget(conditionalVisibility, filterableCollectionIds);
       if (filterTarget) {
@@ -2989,6 +2992,7 @@ function filterByVisibility(
           pageCollectionCounts,
           currentItemId: effectiveCurrentItemId,
           pageCollectionItemId,
+          timezone,
         };
         const groups = conditionalVisibility.groups.map(group => ({
           conditions: (group.conditions || []).map((condition): DynamicVisibilityCondition => {
@@ -3004,6 +3008,7 @@ function filterByVisibility(
                 operator: condition.operator,
                 value: String(condition.value ?? ''),
                 fieldValue: String(v ?? ''),
+                dateOnly: condition.fieldType === 'date_only',
               };
             }
             return {
@@ -3018,7 +3023,7 @@ function filterByVisibility(
             ...(layer._dynamicStyles || {}),
             display: isVisible ? '' : 'none',
           },
-          _dynamicVisibilityRule: { groups },
+          _dynamicVisibilityRule: { timezone, groups },
           children: layer.children
             ? layer.children
               .map(child => filterLayer(child, effectiveCollectionLayerData, effectiveCurrentItemId))
@@ -3404,7 +3409,7 @@ export async function renderCollectionItemsToHtml(
       }
 
       // Apply conditional visibility based on this item's field values
-      resolvedLayers = filterByVisibility(resolvedLayers, item.values, undefined, pageLinkContext?.pageCollectionItemId);
+      resolvedLayers = filterByVisibility(resolvedLayers, item.values, undefined, pageLinkContext?.pageCollectionItemId, htmlTimezone);
 
       // Preferred path: rebuild a full clone of the collection layer just
       // like SSR does (link/action/attributes preserved). Renders one HTML

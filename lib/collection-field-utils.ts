@@ -276,36 +276,97 @@ export function isDatePreset(value: string | undefined): boolean {
 }
 
 /**
- * Resolve a date preset string to a concrete YYYY-MM-DD date (or date pair for
- * range presets). Returns `null` for non-preset values.
+ * Calendar year/month/day (1-based month) of an instant as it appears in a
+ * timezone. Falls back to the UTC components if the timezone is invalid.
  */
-export function resolveDatePreset(preset: string): { start: string; end: string } | null {
-  const now = new Date();
-  const yyyy = now.getFullYear();
-  const mm = now.getMonth();
-  const dd = now.getDate();
+export function getDatePartsInTimezone(
+  date: Date,
+  timezone: string = 'UTC',
+): { year: number; month: number; day: number } {
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).formatToParts(date);
+    const get = (t: string) => Number(parts.find(p => p.type === t)?.value);
+    return { year: get('year'), month: get('month'), day: get('day') };
+  } catch {
+    return { year: date.getUTCFullYear(), month: date.getUTCMonth() + 1, day: date.getUTCDate() };
+  }
+}
 
-  const fmt = (d: Date) => d.toISOString().slice(0, 10);
+/**
+ * UTC epoch milliseconds for a wall-clock time interpreted in the given
+ * timezone. Single-pass offset correction — accurate except within the rare
+ * ~1h DST overlap, which is acceptable for day-boundary filtering.
+ */
+export function zonedTimeToUtcMs(
+  year: number,
+  month: number,
+  day: number,
+  hour: number,
+  minute: number,
+  second: number,
+  ms: number,
+  timezone: string = 'UTC',
+): number {
+  const utcGuess = Date.UTC(year, month - 1, day, hour, minute, second, ms);
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone,
+      hourCycle: 'h23',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    }).formatToParts(new Date(utcGuess));
+    const get = (t: string) => Number(parts.find(p => p.type === t)?.value);
+    const wallAsUtc = Date.UTC(get('year'), get('month') - 1, get('day'), get('hour'), get('minute'), get('second'));
+    return utcGuess - (wallAsUtc - utcGuess);
+  } catch {
+    return utcGuess;
+  }
+}
+
+/**
+ * Resolve a date preset string to a concrete YYYY-MM-DD date (or date pair for
+ * range presets), relative to the current date in the project `timezone`.
+ * Returns `null` for non-preset values.
+ */
+export function resolveDatePreset(
+  preset: string,
+  timezone: string = 'UTC',
+): { start: string; end: string } | null {
+  const { year: yyyy, month, day: dd } = getDatePartsInTimezone(new Date(), timezone);
+  const mm = month - 1;
+
+  // Format calendar Y/M/D as YYYY-MM-DD using UTC purely as a calendar
+  // calculator (constructed and read in UTC, so no timezone shift).
+  const fmt = (y: number, m0: number, d: number) =>
+    new Date(Date.UTC(y, m0, d)).toISOString().slice(0, 10);
 
   switch (preset) {
     case '$today':
-      return { start: fmt(new Date(yyyy, mm, dd)), end: fmt(new Date(yyyy, mm, dd)) };
+      return { start: fmt(yyyy, mm, dd), end: fmt(yyyy, mm, dd) };
     case '$this_week': {
-      const day = now.getDay();
-      const monday = new Date(yyyy, mm, dd - ((day + 6) % 7));
-      const sunday = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + 6);
-      return { start: fmt(monday), end: fmt(sunday) };
+      const dow = new Date(Date.UTC(yyyy, mm, dd)).getUTCDay();
+      const mondayOffset = (dow + 6) % 7;
+      return { start: fmt(yyyy, mm, dd - mondayOffset), end: fmt(yyyy, mm, dd - mondayOffset + 6) };
     }
     case '$this_month':
-      return { start: fmt(new Date(yyyy, mm, 1)), end: fmt(new Date(yyyy, mm + 1, 0)) };
+      return { start: fmt(yyyy, mm, 1), end: fmt(yyyy, mm + 1, 0) };
     case '$this_year':
-      return { start: fmt(new Date(yyyy, 0, 1)), end: fmt(new Date(yyyy, 11, 31)) };
+      return { start: fmt(yyyy, 0, 1), end: fmt(yyyy, 11, 31) };
     case '$past_week':
-      return { start: fmt(new Date(yyyy, mm, dd - 7)), end: fmt(new Date(yyyy, mm, dd)) };
+      return { start: fmt(yyyy, mm, dd - 7), end: fmt(yyyy, mm, dd) };
     case '$past_month':
-      return { start: fmt(new Date(yyyy, mm - 1, dd)), end: fmt(new Date(yyyy, mm, dd)) };
+      return { start: fmt(yyyy, mm - 1, dd), end: fmt(yyyy, mm, dd) };
     case '$past_year':
-      return { start: fmt(new Date(yyyy - 1, mm, dd)), end: fmt(new Date(yyyy, mm, dd)) };
+      return { start: fmt(yyyy - 1, mm, dd), end: fmt(yyyy, mm, dd) };
     default:
       return null;
   }
@@ -320,10 +381,11 @@ export function resolveDateFilterValue(
   operator: string,
   value: string | undefined,
   value2: string | undefined,
+  timezone: string = 'UTC',
 ): { operator: string; value: string; value2?: string } | null {
   if (!value) return null;
   if (!isDatePreset(value)) return { operator, value, value2 };
-  const range = resolveDatePreset(value);
+  const range = resolveDatePreset(value, timezone);
   if (!range) return { operator, value, value2 };
 
   switch (operator) {
@@ -381,18 +443,29 @@ export function isDateOnlyString(value: string | undefined | null): boolean {
 
 /**
  * Convert a filter date string to start/end-of-day UTC timestamps.
- * For `YYYY-MM-DD` inputs the range spans the entire UTC day so that filters
- * match datetime values (which are stored as full ISO strings) regardless of
- * the time component. For other inputs, both bounds equal the parsed
- * timestamp. Returns `null` if the input cannot be parsed.
+ *
+ * For datetime (`date`) fields, a `YYYY-MM-DD` input spans the day in the
+ * project `timezone` (converted to the matching UTC instants) so filters align
+ * with what the user sees. For `date_only` fields (`dateOnly = true`) the day
+ * spans UTC, since those values are timezone-neutral calendar dates. Other
+ * inputs collapse to a single parsed instant. Returns `null` if unparseable.
  */
 export function dateStringToDayBounds(
   value: string | undefined | null,
+  timezone: string = 'UTC',
+  dateOnly: boolean = false,
 ): { start: number; end: number } | null {
   if (!value) return null;
   if (isDateOnlyString(value)) {
-    const start = Date.parse(`${value}T00:00:00.000Z`);
-    const end = Date.parse(`${value}T23:59:59.999Z`);
+    if (dateOnly) {
+      const start = Date.parse(`${value}T00:00:00.000Z`);
+      const end = Date.parse(`${value}T23:59:59.999Z`);
+      if (isNaN(start) || isNaN(end)) return null;
+      return { start, end };
+    }
+    const [y, m, d] = value.split('-').map(Number);
+    const start = zonedTimeToUtcMs(y, m, d, 0, 0, 0, 0, timezone);
+    const end = zonedTimeToUtcMs(y, m, d, 23, 59, 59, 999, timezone);
     if (isNaN(start) || isNaN(end)) return null;
     return { start, end };
   }
@@ -402,18 +475,21 @@ export function dateStringToDayBounds(
 
 /**
  * Compare a stored date/datetime value against a filter value using day-aware
- * semantics (so `is today` matches any timestamp on today's date).
- * Returns `false` if either value cannot be parsed.
+ * semantics (so `is today` matches any timestamp on today's date). Day bounds
+ * are resolved in the project `timezone` for datetime fields; `dateOnly` fields
+ * compare in UTC. Returns `false` if either value cannot be parsed.
  */
 export function compareDateFilter(
   storedValue: string,
   operator: 'is' | 'is_before' | 'is_after' | 'is_between',
   filterValue: string,
   filterValue2?: string,
+  timezone: string = 'UTC',
+  dateOnly: boolean = false,
 ): boolean {
   const valueTs = Date.parse(storedValue);
   if (isNaN(valueTs)) return false;
-  const bounds = dateStringToDayBounds(filterValue);
+  const bounds = dateStringToDayBounds(filterValue, timezone, dateOnly);
   if (!bounds) return false;
 
   switch (operator) {
@@ -424,7 +500,7 @@ export function compareDateFilter(
     case 'is_after':
       return valueTs > bounds.end;
     case 'is_between': {
-      const bounds2 = dateStringToDayBounds(filterValue2);
+      const bounds2 = dateStringToDayBounds(filterValue2, timezone, dateOnly);
       if (!bounds2) return false;
       return valueTs >= bounds.start && valueTs <= bounds2.end;
     }

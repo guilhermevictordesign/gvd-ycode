@@ -819,7 +819,7 @@ export default function ConditionalVisibilitySettings({
                     </SelectTrigger>
                     <SelectContent>
                       <SelectGroup>
-                        <SelectItem value="_custom">Custom date...</SelectItem>
+                        <SelectItem value="_custom">Custom date</SelectItem>
                         {DATE_PRESET_OPTIONS
                           .filter((opt) => !opt.value.startsWith('$past_'))
                           .map((opt) => (

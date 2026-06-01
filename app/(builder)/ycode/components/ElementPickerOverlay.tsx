@@ -99,6 +99,9 @@ export default function ElementPickerOverlay({ iframeElement, zoom }: ElementPic
     const handleEscape = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.preventDefault();
+        // Stop other global Esc handlers (e.g. "select parent layer") from
+        // also reacting while the picker is being cancelled.
+        e.stopImmediatePropagation();
         stopElementPicker();
       }
     };
@@ -142,6 +145,7 @@ export default function ElementPickerOverlay({ iframeElement, zoom }: ElementPic
     const handleEscape = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.preventDefault();
+        e.stopImmediatePropagation();
         stopElementPicker();
       }
     };

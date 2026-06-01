@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/supabase-server';
+import { getSettingByKey } from '@/lib/repositories/settingsRepository';
 import { getItemsByCollectionId } from '@/lib/repositories/collectionItemRepository';
 import { getValuesByItemIds } from '@/lib/repositories/collectionItemValueRepository';
 import { getFieldsByCollectionId } from '@/lib/repositories/collectionFieldRepository';
@@ -88,9 +89,11 @@ async function getIdsMatchingFilter(
   filter: FilterCondition,
   isPublished: boolean,
   allItemIds: string[],
+  timezone: string,
 ): Promise<Set<string>> {
   const { fieldId, operator, value } = filter;
   const allSet = new Set(allItemIds);
+  const isDateOnly = filter.fieldType === 'date_only';
 
   const selectIds = (chunk: string[]) =>
     client
@@ -138,7 +141,7 @@ async function getIdsMatchingFilter(
         );
         const result = new Set<string>();
         for (const row of data) {
-          if (compareDateFilter(String(row.value), 'is', value)) result.add(row.item_id);
+          if (compareDateFilter(String(row.value), 'is', value, undefined, timezone, isDateOnly)) result.add(row.item_id);
         }
         return result;
       }
@@ -191,7 +194,7 @@ async function getIdsMatchingFilter(
         );
         const matchIds = new Set<string>();
         for (const row of data) {
-          if (compareDateFilter(String(row.value), 'is', value)) matchIds.add(row.item_id);
+          if (compareDateFilter(String(row.value), 'is', value, undefined, timezone, isDateOnly)) matchIds.add(row.item_id);
         }
         return new Set([...allSet].filter(id => !matchIds.has(id)));
       }
@@ -262,7 +265,7 @@ async function getIdsMatchingFilter(
       );
       const result = new Set<string>();
       for (const row of data) {
-        if (compareDateFilter(String(row.value), 'is_before', value)) result.add(row.item_id);
+        if (compareDateFilter(String(row.value), 'is_before', value, undefined, timezone, isDateOnly)) result.add(row.item_id);
       }
       return result;
     }
@@ -273,7 +276,7 @@ async function getIdsMatchingFilter(
       );
       const result = new Set<string>();
       for (const row of data) {
-        if (compareDateFilter(String(row.value), 'is_after', value)) result.add(row.item_id);
+        if (compareDateFilter(String(row.value), 'is_after', value, undefined, timezone, isDateOnly)) result.add(row.item_id);
       }
       return result;
     }
@@ -291,11 +294,11 @@ async function getIdsMatchingFilter(
         const storedValue = String(row.value);
         // Open-ended ranges fall back to the relevant single-bound operator.
         if (startRaw && endRaw) {
-          if (compareDateFilter(storedValue, 'is_between', startRaw, endRaw)) result.add(row.item_id);
+          if (compareDateFilter(storedValue, 'is_between', startRaw, endRaw, timezone, isDateOnly)) result.add(row.item_id);
         } else if (startRaw) {
-          if (!compareDateFilter(storedValue, 'is_before', startRaw)) result.add(row.item_id);
+          if (!compareDateFilter(storedValue, 'is_before', startRaw, undefined, timezone, isDateOnly)) result.add(row.item_id);
         } else if (endRaw) {
-          if (!compareDateFilter(storedValue, 'is_after', endRaw)) result.add(row.item_id);
+          if (!compareDateFilter(storedValue, 'is_after', endRaw, undefined, timezone, isDateOnly)) result.add(row.item_id);
         }
       }
       return result;
@@ -443,6 +446,7 @@ async function getFilteredItemIds(
   collectionId: string,
   isPublished: boolean,
   filterGroups: FilterCondition[][],
+  timezone: string,
   pageCollectionItemId?: string,
 ): Promise<{ matchingIds: string[]; total: number }> {
   const client = await getSupabaseAdmin();
@@ -468,12 +472,12 @@ async function getFilteredItemIds(
         continue;
       }
       if (isDateFieldType(filter.fieldType) && isDatePreset(filter.value)) {
-        const resolved = resolveDateFilterValue(filter.operator, filter.value, filter.value2);
+        const resolved = resolveDateFilterValue(filter.operator, filter.value, filter.value2, timezone);
         if (resolved) {
           filter = { ...filter, operator: resolved.operator, value: resolved.value, value2: resolved.value2 };
         }
       }
-      const matchingForFilter = await getIdsMatchingFilter(client, filter, isPublished, [...currentIds]);
+      const matchingForFilter = await getIdsMatchingFilter(client, filter, isPublished, [...currentIds], timezone);
       currentIds = new Set([...currentIds].filter(id => matchingForFilter.has(id)));
     }
 
@@ -574,10 +578,13 @@ export async function POST(
       return noCache({ error: 'collectionLayerId is required' }, 400);
     }
 
+    const timezone = (await getSettingByKey('timezone') as string | null) || 'UTC';
+
     const { matchingIds, total: filteredTotal } = await getFilteredItemIds(
       collectionId,
       isPublished,
       filterGroups,
+      timezone,
       pageCollectionItemId,
     );
 
