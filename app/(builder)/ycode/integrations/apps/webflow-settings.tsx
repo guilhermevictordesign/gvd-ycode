@@ -30,6 +30,8 @@ import {
 import { Spinner } from '@/components/ui/spinner';
 
 import { webflowApi, type WebflowCollectionPreview } from '@/lib/apps/webflow/client';
+import { WEBFLOW_SETTINGS } from '@/lib/apps/webflow/constants';
+import { clearStylesheetCache } from '@/lib/apps/webflow/stylesheet-cache';
 import { formatRelativeTime } from '@/lib/utils';
 import { useCollectionsStore } from '@/stores/useCollectionsStore';
 import type { WebflowImport, WebflowSite } from '@/lib/apps/webflow/types';
@@ -81,6 +83,12 @@ export default function WebflowSettings({
   // Disconnect dialog
   const [showDisconnect, setShowDisconnect] = useState(false);
 
+  // Design section — published site URL used to backfill global styles on paste.
+  const [publishedUrl, setPublishedUrl] = useState('');
+  const [savedPublishedUrl, setSavedPublishedUrl] = useState('');
+  const [isTestingDesign, setIsTestingDesign] = useState(false);
+  const [isSavingDesign, setIsSavingDesign] = useState(false);
+
   // CMS store — used to refresh the sidebar after migrate / re-sync.
   const loadCollections = useCollectionsStore((s) => s.loadCollections);
   const loadFields = useCollectionsStore((s) => s.loadFields);
@@ -114,12 +122,20 @@ export default function WebflowSettings({
         webflowApi.listImports().catch(() => [] as WebflowImport[]),
       ]);
 
-      if (settings?.api_token) {
-        setSavedToken(settings.api_token);
-        setToken(settings.api_token);
+      const apiToken = settings?.[WEBFLOW_SETTINGS.apiToken];
+      if (apiToken) {
+        setSavedToken(apiToken);
+        setToken(apiToken);
         setIsConnected(true);
         onConnectionChange(true);
         loadSites();
+      }
+
+      const storedUrl = settings?.[WEBFLOW_SETTINGS.publishedUrl];
+      if (storedUrl) {
+        setPublishedUrl(storedUrl);
+        setSavedPublishedUrl(storedUrl);
+        onConnectionChange(true);
       }
 
       setImports(importsList || []);
@@ -160,7 +176,7 @@ export default function WebflowSettings({
   const handleSaveToken = async () => {
     setIsSavingToken(true);
     try {
-      await webflowApi.saveSettings({ api_token: token });
+      await webflowApi.saveSettings({ [WEBFLOW_SETTINGS.apiToken]: token });
       setSavedToken(token);
       setIsConnected(true);
       onConnectionChange(true);
@@ -182,6 +198,11 @@ export default function WebflowSettings({
       setSelectedSiteId('');
       setPreview(null);
       setImports([]);
+      // deleteSettings() also clears the Design published URL — reset that state
+      // and drop the cached stylesheet so a later paste re-discovers cleanly.
+      setPublishedUrl('');
+      setSavedPublishedUrl('');
+      clearStylesheetCache();
       onConnectionChange(false);
       onDisconnect();
     } catch {
@@ -312,6 +333,49 @@ export default function WebflowSettings({
   };
 
   // =========================================================================
+  // Design — published stylesheet
+  // =========================================================================
+
+  const handleTestDesign = async () => {
+    setIsTestingDesign(true);
+    try {
+      const result = await webflowApi.resolveStylesheet(publishedUrl);
+      if (result?.css) {
+        toast.success('Stylesheet found', {
+          description: 'Global styles will be applied when you paste designs.',
+        });
+      } else {
+        toast.error('No stylesheet found', {
+          description: 'Make sure the site is published and the URL is correct.',
+        });
+      }
+    } catch (error) {
+      toast.error('Could not reach that site', {
+        description: error instanceof Error ? error.message : 'Check the URL and try again.',
+      });
+    } finally {
+      setIsTestingDesign(false);
+    }
+  };
+
+  const handleSaveDesign = async () => {
+    setIsSavingDesign(true);
+    try {
+      await webflowApi.saveSettings({ [WEBFLOW_SETTINGS.publishedUrl]: publishedUrl.trim() });
+      setSavedPublishedUrl(publishedUrl.trim());
+      // The stored site changed — drop any cached stylesheet so the next paste
+      // re-discovers from the new URL.
+      clearStylesheetCache();
+      if (publishedUrl.trim()) onConnectionChange(true);
+      toast.success('Design settings saved');
+    } catch {
+      toast.error('Failed to save design settings');
+    } finally {
+      setIsSavingDesign(false);
+    }
+  };
+
+  // =========================================================================
   // Render
   // =========================================================================
 
@@ -319,8 +383,8 @@ export default function WebflowSettings({
     return (
       <>
         <SheetHeader>
-          <SheetTitle>Webflow CMS</SheetTitle>
-          <SheetDescription className="sr-only">Webflow CMS integration settings</SheetDescription>
+          <SheetTitle>Webflow</SheetTitle>
+          <SheetDescription className="sr-only">Webflow integration settings</SheetDescription>
         </SheetHeader>
         <div className="flex items-center justify-center py-12">
           <Spinner />
@@ -332,7 +396,7 @@ export default function WebflowSettings({
   return (
     <>
       <SheetHeader>
-        <SheetTitle className="mr-auto">Webflow CMS</SheetTitle>
+        <SheetTitle className="mr-auto">Webflow</SheetTitle>
         {isConnected && (
           <Button
             variant="secondary"
@@ -348,8 +412,9 @@ export default function WebflowSettings({
       </SheetHeader>
 
       <div className="mt-3 space-y-8">
-        {/* Token Section */}
+        {/* CMS Section */}
         <div className="space-y-4">
+          <FieldLabel className="text-sm font-semibold">CMS</FieldLabel>
           <FieldDescription className="flex flex-col gap-2">
             <span>
               Enter a Webflow site API token. Required scopes:{' '}
@@ -533,6 +598,68 @@ export default function WebflowSettings({
             )}
           </div>
         )}
+
+        {/* Design Section */}
+        <div className="space-y-4 border-t pt-6">
+          <FieldLabel className="text-sm font-semibold">Design</FieldLabel>
+
+          <FieldDescription className="flex flex-col gap-2">
+            <span>
+              Copy elements in the Webflow Designer and paste them onto the Ycode
+              canvas to recreate the layout, styles and components.
+            </span>
+            <span>
+              Add your published site URL below so pasted designs pick up{' '}
+              <span className="text-foreground">global styles</span> — section
+              backgrounds, heading and text colours, and fonts.
+            </span>
+          </FieldDescription>
+
+          <Field>
+            <FieldLabel htmlFor="webflow-site-url">Published site URL</FieldLabel>
+            <Input
+              id="webflow-site-url"
+              type="url"
+              placeholder="https://your-site.webflow.io"
+              value={publishedUrl}
+              onChange={(e) => setPublishedUrl(e.target.value)}
+              className="font-mono text-xs"
+            />
+            <FieldDescription>
+              Your Webflow site must be{' '}
+              <span className="text-foreground">published</span> for its
+              stylesheet to be available.
+            </FieldDescription>
+            <div className="flex gap-2 mt-2">
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={handleTestDesign}
+                disabled={!publishedUrl.trim() || isTestingDesign}
+              >
+                {isTestingDesign && <Spinner className="size-3" />}
+                Test
+              </Button>
+              <Button
+                size="sm"
+                onClick={handleSaveDesign}
+                disabled={publishedUrl.trim() === savedPublishedUrl.trim() || isSavingDesign}
+              >
+                {isSavingDesign && <Spinner className="size-3" />}
+                Save
+              </Button>
+            </div>
+          </Field>
+
+          <div className="border rounded-lg bg-secondary/30 p-3">
+            <p className="text-xs font-medium mb-2">How to paste a design</p>
+            <ol className="list-decimal list-inside space-y-1 text-xs text-muted-foreground">
+              <li>Publish your site in Webflow.</li>
+              <li>Select elements in the Webflow Designer and copy them.</li>
+              <li>Click the Ycode canvas and paste to import the design.</li>
+            </ol>
+          </div>
+        </div>
       </div>
 
       {/* Disconnect dialog */}
@@ -540,7 +667,7 @@ export default function WebflowSettings({
         open={showDisconnect}
         onOpenChange={setShowDisconnect}
         title="Disconnect Webflow?"
-        description="This removes your token and all import records. The Ycode collections created by past migrations will remain."
+        description="This removes your CMS token, your Design site URL, and all import records. The Ycode collections created by past migrations will remain."
         confirmLabel="Disconnect"
         cancelLabel="Cancel"
         confirmVariant="destructive"

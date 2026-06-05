@@ -5,11 +5,18 @@
  */
 
 import type { Layer, LayerStyle, TextStyle } from '@/types';
+import { buildDesign } from '@/lib/import/design';
+import { getStyleIds, resolveLayerClasses } from '@/lib/layer-style-resolve';
+
+export { getStyleIds } from '@/lib/layer-style-resolve';
 
 /**
  * Apply a style to a layer
- * Replaces layer's classes and design with style's values
- * Clears any previous style overrides
+ * Replaces the layer's style stack with this single style and its values.
+ * Clears any previous style overrides.
+ *
+ * `styleId` is dual-written alongside `styleIds` so legacy readers keep working
+ * during the migration to multi-class stacks.
  */
 export function applyStyleToLayer(layer: Layer, style: LayerStyle): Layer {
   return {
@@ -17,7 +24,9 @@ export function applyStyleToLayer(layer: Layer, style: LayerStyle): Layer {
     classes: style.classes,
     design: style.design,
     styleId: style.id,
+    styleIds: [style.id],
     styleOverrides: undefined, // Clear any previous overrides
+    styleOverridesByStyle: undefined, // Clear per-chip overrides
   };
 }
 
@@ -27,68 +36,23 @@ export function applyStyleToLayer(layer: Layer, style: LayerStyle): Layer {
  * Then removes the style link and overrides
  */
 export function detachStyleFromLayer(layer: Layer, style?: LayerStyle): Layer {
-  // When updateStyledLayer is called, it updates both layer.classes/design AND styleOverrides
-  // So we can just use what's already on the layer
-
-  // Remove style references but keep current classes/design
-  const { styleId, styleOverrides, ...rest } = layer;
+  // The layer's current classes/design already reflect the full resolved stack
+  // (styles + overrides), so flattening just drops every style link and keeps
+  // the rendered look.
+  const { styleId, styleIds, styleOverrides, styleOverridesByStyle, ...rest } = layer;
 
   return {
     ...rest,
-    // Keep the layer's current classes and design
-    // (which already includes style + overrides if they were applied)
     classes: layer.classes || '',
     design: layer.design,
   } as Layer;
 }
 
 /**
- * Check if layer has a style applied
+ * Check if layer has any style applied
  */
 export function hasStyle(layer: Layer): boolean {
-  return !!layer.styleId;
-}
-
-/**
- * Check if layer has style overrides
- * Returns true if layer has a valid style AND has local modifications that differ from the style
- */
-export function hasStyleOverrides(layer: Layer, style?: LayerStyle): boolean {
-  const hasValidStyleId = layer.styleId && layer.styleId.trim() !== '';
-
-  if (!hasValidStyleId || !layer.styleOverrides) {
-    return false;
-  }
-
-  // If no style provided, we can only check if styleOverrides exists
-  // This is a simple check used when we don't have the style loaded
-  if (!style) {
-    return true;
-  }
-
-  // Compare current values with style values to see if they actually differ
-  const classesMatch = layer.classes === style.classes;
-  const designMatch = JSON.stringify(layer.design || {}) === JSON.stringify(style.design || {});
-
-  // Has overrides if either classes or design differ from the style
-  return !classesMatch || !designMatch;
-}
-
-/**
- * Reset layer to original style
- * Removes overrides and reapplies style's current values
- */
-export function resetLayerToStyle(layer: Layer, style: LayerStyle): Layer {
-  if (!layer.styleId || layer.styleId !== style.id) {
-    return layer;
-  }
-
-  return {
-    ...layer,
-    classes: style.classes,
-    design: style.design,
-    styleOverrides: undefined,
-  };
+  return getStyleIds(layer).length > 0;
 }
 
 /**
@@ -100,8 +64,8 @@ export function updateStyledLayer(
   layer: Layer,
   updates: { classes?: string; design?: Layer['design'] }
 ): Layer {
-  // Check if layer has a valid style ID (not just empty string or undefined)
-  const hasValidStyleId = layer.styleId && layer.styleId.trim() !== '';
+  // Check if the layer has any style applied
+  const hasValidStyleId = getStyleIds(layer).length > 0;
 
   if (!hasValidStyleId) {
     // No style applied, just update normally
@@ -206,25 +170,30 @@ function detachStyleFromTextStyles(
  */
 export function updateLayersWithStyle(
   layers: Layer[],
-  styleId: string,
-  newClasses: string,
-  newDesign?: Layer['design']
+  changedStyleId: string,
+  stylesById: Map<string, LayerStyle>,
 ): Layer[] {
+  const changed = stylesById.get(changedStyleId);
+  const newClasses = changed?.classes ?? '';
+  const newDesign = changed?.design;
+
   return layers.map(layer => {
     let updatedLayer = layer;
 
-    // Update this layer if it uses the style and has no overrides
-    if (layer.styleId === styleId && !layer.styleOverrides) {
-      updatedLayer = {
-        ...updatedLayer,
-        classes: newClasses,
-        design: newDesign,
-      };
+    // Re-derive this layer if it references the changed style. Re-flatten the
+    // whole stack so the changed style merges back in at its cascade position;
+    // `resolveLayerClasses` honors per-chip overrides, so a chip the layer has
+    // locally customized keeps its value while the others follow the style.
+    // The legacy single-blob `styleOverrides` still freezes the whole layer.
+    const ids = getStyleIds(layer);
+    if (ids.includes(changedStyleId) && !layer.styleOverrides) {
+      const classes = resolveLayerClasses(layer, stylesById);
+      updatedLayer = { ...updatedLayer, classes, design: buildDesign(classes) };
     }
 
-    // Update textStyles entries that reference this style
+    // Update textStyles entries that reference this style (single-style only)
     if (layer.textStyles) {
-      const updatedTextStyles = updateTextStylesWithStyle(layer.textStyles, styleId, newClasses, newDesign);
+      const updatedTextStyles = updateTextStylesWithStyle(layer.textStyles, changedStyleId, newClasses, newDesign);
       if (updatedTextStyles) {
         updatedLayer = updatedLayer === layer
           ? { ...layer, textStyles: updatedTextStyles }
@@ -234,7 +203,7 @@ export function updateLayersWithStyle(
 
     // Recursively update children
     if (layer.children && layer.children.length > 0) {
-      const updatedChildren = updateLayersWithStyle(layer.children, styleId, newClasses, newDesign);
+      const updatedChildren = updateLayersWithStyle(layer.children, changedStyleId, stylesById);
       if (updatedChildren !== layer.children) {
         updatedLayer = updatedLayer === layer
           ? { ...layer, children: updatedChildren }
@@ -252,19 +221,47 @@ export function updateLayersWithStyle(
  * Keeps current classes/design values but removes the style link
  * Also detaches from textStyles entries that reference the style
  */
-export function detachStyleFromLayers(layers: Layer[], styleId: string): Layer[] {
+export function detachStyleFromLayers(
+  layers: Layer[],
+  removedStyleId: string,
+  stylesById?: Map<string, LayerStyle>,
+): Layer[] {
   return layers.map(layer => {
     let updatedLayer = layer;
 
-    // Detach if this layer uses the style
-    if (layer.styleId === styleId) {
-      const { styleId: _, styleOverrides: __, ...rest } = layer;
-      updatedLayer = rest as Layer;
+    // Remove the style from this layer's stack.
+    const ids = getStyleIds(layer);
+    if (ids.includes(removedStyleId)) {
+      const remaining = ids.filter(id => id !== removedStyleId);
+      if (remaining.length === 0) {
+        // Last/only style: keep the current rendered look, drop all links.
+        const { styleId: _s, styleIds: _ss, styleOverrides: _so, styleOverridesByStyle: _sm, ...rest } = layer;
+        updatedLayer = rest as Layer;
+      } else {
+        // Combo stack: keep the remaining styles (and their per-chip overrides),
+        // drop the removed style's override, and re-flatten.
+        const prevMap = layer.styleOverridesByStyle ?? {};
+        const map: NonNullable<Layer['styleOverridesByStyle']> = {};
+        for (const id of remaining) if (prevMap[id]) map[id] = prevMap[id];
+        const hasMap = Object.keys(map).length > 0;
+        const next: Layer = {
+          ...layer,
+          styleIds: remaining,
+          styleId: remaining[0],
+          styleOverridesByStyle: hasMap ? map : undefined,
+        };
+        if (stylesById && !layer.styleOverrides) {
+          const classes = resolveLayerClasses(next, stylesById);
+          next.classes = classes;
+          next.design = buildDesign(classes);
+        }
+        updatedLayer = next;
+      }
     }
 
     // Detach from textStyles entries
     if (layer.textStyles) {
-      const updatedTextStyles = detachStyleFromTextStyles(layer.textStyles, styleId);
+      const updatedTextStyles = detachStyleFromTextStyles(layer.textStyles, removedStyleId);
       if (updatedTextStyles) {
         updatedLayer = updatedLayer === layer
           ? { ...layer, textStyles: updatedTextStyles }
@@ -274,7 +271,7 @@ export function detachStyleFromLayers(layers: Layer[], styleId: string): Layer[]
 
     // Recursively detach from children
     if (layer.children && layer.children.length > 0) {
-      const updatedChildren = detachStyleFromLayers(layer.children, styleId);
+      const updatedChildren = detachStyleFromLayers(layer.children, removedStyleId, stylesById);
       if (updatedChildren !== layer.children) {
         updatedLayer = updatedLayer === layer
           ? { ...layer, children: updatedChildren }
@@ -294,7 +291,7 @@ export function countLayersUsingStyle(layers: Layer[], styleId: string): number 
   let count = 0;
 
   for (const layer of layers) {
-    if (layer.styleId === styleId) {
+    if (getStyleIds(layer).includes(styleId)) {
       count++;
     }
 
@@ -322,7 +319,7 @@ export function getLayerIdsUsingStyle(layers: Layer[], styleId: string): string[
   const ids: string[] = [];
 
   for (const layer of layers) {
-    if (layer.styleId === styleId) {
+    if (getStyleIds(layer).includes(styleId)) {
       ids.push(layer.id);
     } else if (layer.textStyles) {
       for (const ts of Object.values(layer.textStyles)) {

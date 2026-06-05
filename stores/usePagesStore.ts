@@ -1,7 +1,7 @@
 'use client';
 
 import { create } from 'zustand';
-import type { Layer, Page, PageLayers, PageFolder, PageItemDuplicateResult, CollectionItemWithValues } from '../types';
+import type { Layer, LayerStyle, Page, PageLayers, PageFolder, PageItemDuplicateResult, CollectionItemWithValues } from '../types';
 import { pagesApi, pageLayersApi, foldersApi } from '../lib/api';
 import { getStatusFlagsFromAction, type StatusAction } from '../lib/collection-field-utils';
 import { getLayerFromTemplate, getBlockName } from '../lib/templates/blocks';
@@ -102,8 +102,8 @@ interface PagesActions {
   pasteInside: (pageId: string, targetLayerId: string, layerToPaste: Layer) => Layer | null;
 
   // Layer Style Actions
-  updateStyleOnLayers: (styleId: string, newClasses: string, newDesign?: Layer['design']) => void;
-  detachStyleFromAllLayers: (styleId: string) => void;
+  updateStyleOnLayers: (styleId: string, stylesById: Map<string, LayerStyle>) => void;
+  detachStyleFromAllLayers: (styleId: string, stylesById?: Map<string, LayerStyle>) => void;
 
   // Component Actions
   createComponentFromLayer: (pageId: string, layerId: string, componentName: string) => Promise<string | null>;
@@ -2910,7 +2910,7 @@ export const usePagesStore = create<PagesStore>((set, get) => ({
    * Used when a style is updated
    * Updates the classes/design on layers that have the style applied
    */
-  updateStyleOnLayers: (styleId, newClasses, newDesign) => {
+  updateStyleOnLayers: (styleId, stylesById) => {
     const { draftsByPageId } = get();
 
     const updatedDrafts = { ...draftsByPageId };
@@ -2919,7 +2919,7 @@ export const usePagesStore = create<PagesStore>((set, get) => ({
       const draft = updatedDrafts[pageId];
       updatedDrafts[pageId] = {
         ...draft,
-        layers: updateLayersWithStyle(draft.layers, styleId, newClasses, newDesign),
+        layers: updateLayersWithStyle(draft.layers, styleId, stylesById),
       };
     });
 
@@ -2929,9 +2929,9 @@ export const usePagesStore = create<PagesStore>((set, get) => ({
   /**
    * Detach a style from all layers across all pages
    * Used when a style is deleted
-   * Keeps current classes/design values but removes the style link
+   * Removes the style from each layer's stack, re-flattening remaining styles
    */
-  detachStyleFromAllLayers: (styleId) => {
+  detachStyleFromAllLayers: (styleId, stylesById) => {
     const { draftsByPageId } = get();
 
     const updatedDrafts = { ...draftsByPageId };
@@ -2940,7 +2940,7 @@ export const usePagesStore = create<PagesStore>((set, get) => ({
       const draft = updatedDrafts[pageId];
       updatedDrafts[pageId] = {
         ...draft,
-        layers: detachStyleFromLayers(draft.layers, styleId),
+        layers: detachStyleFromLayers(draft.layers, styleId, stylesById),
       };
     });
 

@@ -89,10 +89,10 @@ import { useLocalisationStore } from '@/stores/useLocalisationStore';
 import { useLayerLocks } from '@/hooks/use-layer-locks';
 
 // 6. Utils, APIs, lib
-import { classesToDesign, mergeDesign, removeConflictsForClass, getRemovedPropertyClasses } from '@/lib/tailwind-class-mapper';
-import { resetLayerToStyle, hasStyleOverrides } from '@/lib/layer-style-utils';
-import { updateStyleAcrossStores } from '@/lib/layer-style-store-utils';
-import { useLiveLayerStyleUpdates } from '@/hooks/use-live-layer-style-updates';
+import { classesToDesign, mergeDesign, removeConflictsForClass } from '@/lib/tailwind-class-mapper';
+import { getStyleIds } from '@/lib/layer-style-utils';
+import { resolveLayerClasses, chipClasses } from '@/lib/layer-style-resolve';
+import { buildDesign } from '@/lib/import/design';
 import { cn } from '@/lib/utils';
 import { sanitizeHtmlId } from '@/lib/html-utils';
 import { isFieldVariable, getCollectionVariable, findParentCollectionLayer, findAllParentCollectionLayers, isTextEditable, isTextContentLayer, isRichTextLayer, isHeadingLayer, findLayerWithParent, resetBindingsOnCollectionSourceChange, isInputInsideFilter, resolveFilterInputId, getLayerIndexes, indexedFindLayerById, indexedFindLayerWithParent, indexedFindParentCollectionLayer } from '@/lib/layer-utils';
@@ -708,7 +708,11 @@ const RightSidebar = React.memo(function RightSidebar({
     }
   }, [selectedLayer, showTextStyleControls, activeTextStyleKey]);
 
-  // Lock-aware update function
+  // Tracks the active chip so design edits route to the right per-chip override.
+  // Set during render once `activeLayerStyleId` is computed below.
+  const activeStyleIdRef = useRef<string | null>(null);
+
+  // Lock-aware update function.
   const handleLayerUpdate = useCallback((layerId: string, updates: Partial<Layer>) => {
     if (isLockedByOther) {
       console.warn('Cannot update layer - locked by another user');
@@ -724,60 +728,112 @@ const RightSidebar = React.memo(function RightSidebar({
 
   // Get applied layer style and its classes
   const getStyleById = useLayerStylesStore((state) => state.getStyleById);
-  const updateStyle = useLayerStylesStore((state) => state.updateStyle);
-  const liveLayerStyleUpdates = useLiveLayerStyleUpdates();
-  const appliedStyle = selectedLayer?.styleId ? getStyleById(selectedLayer.styleId) : undefined;
-  const styleClassesArray = useMemo(() => {
-    if (!appliedStyle || !appliedStyle.classes) return [];
-    const styleClasses = Array.isArray(appliedStyle.classes)
-      ? appliedStyle.classes.join(' ')
-      : appliedStyle.classes;
-    return styleClasses.split(' ').filter(cls => cls.trim() !== '');
-  }, [appliedStyle]);
+  const allStyles = useLayerStylesStore((state) => state.styles);
+  const stylesById = useMemo(
+    () => new Map(allStyles.map((s) => [s.id, s])),
+    [allStyles]
+  );
+  // The layer's full applied style stack (combo classes), low -> high priority.
+  const appliedStyleIds = useMemo(
+    () => (selectedLayer ? getStyleIds(selectedLayer) : []),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [selectedLayer?.styleIds, selectedLayer?.styleId]
+  );
 
-  // Filter layer classes to only show those NOT in the style
-  const layerOnlyClasses = useMemo(() => {
-    if (styleClassesArray.length === 0) return classesArray;
-    return classesArray.filter(cls => !styleClassesArray.includes(cls));
-  }, [classesArray, styleClassesArray]);
+  // The "active" style chip — the one whose classes/properties the design panel
+  // shows and edits. Clicking a chip in LayerStylesPanel changes it; it defaults
+  // to the highest-priority (last) style. Editing a property while a chip is
+  // active writes a per-chip override (`styleOverridesByStyle`), so only the
+  // selected element changes and the customization is unique to that chip.
+  const [activeStyleId, setActiveStyleId] = useState<string | null>(null);
+  const activeLayerStyleId = appliedStyleIds.length > 0
+    ? (activeStyleId && appliedStyleIds.includes(activeStyleId)
+      ? activeStyleId
+      : appliedStyleIds[appliedStyleIds.length - 1])
+    : null;
+  activeStyleIdRef.current = activeLayerStyleId;
 
-  // Determine which style classes are overridden by layer's custom classes or explicitly removed
-  const overriddenStyleClasses = useMemo(() => {
-    if (styleClassesArray.length === 0) return new Set<string>();
-    const overridden = new Set<string>();
+  const activeChipStyle = activeLayerStyleId ? getStyleById(activeLayerStyleId) : undefined;
 
-    // 1. Check for style classes explicitly removed (not present in layer classes at all)
-    for (const styleClass of styleClassesArray) {
-      if (!classesArray.includes(styleClass)) {
-        overridden.add(styleClass);
-      }
+  // The active chip's effective classes for THIS layer: its per-chip override if
+  // one exists, else the shared style's own classes.
+  const activeChipClassTokens = useMemo(() => {
+    if (!selectedLayer || !activeLayerStyleId) return [];
+    return chipClasses(selectedLayer, activeLayerStyleId, stylesById)
+      .split(' ')
+      .filter(cls => cls.trim() !== '');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedLayer?.id, activeLayerStyleId, selectedLayer?.styleOverridesByStyle, stylesById]);
+
+  // A proxy layer the design controls bind to when a chip is active: it carries
+  // the active chip's classes/design (no style links) so the panel reflects that
+  // chip. Edits are intercepted by `handleDesignUpdate` and stored as a per-chip
+  // override on the real layer.
+  const designLayer = useMemo<Layer | null>(() => {
+    if (!selectedLayer) return null;
+    if (!activeLayerStyleId) return selectedLayer;
+    const cls = activeChipClassTokens.join(' ');
+    const { styleId: _s, styleIds: _ss, styleOverrides: _so, styleOverridesByStyle: _sm, ...rest } = selectedLayer;
+    return { ...rest, classes: cls, design: buildDesign(cls) };
+  }, [selectedLayer, activeLayerStyleId, activeChipClassTokens]);
+
+  // Store an edited class string as the active chip's override (or clear it when
+  // it matches the shared style again), then re-flatten the whole stack so the
+  // canvas renders the resolved cascade. Only THIS layer changes.
+  const applyChipClasses = useCallback((chipId: string, newClassesStr: string) => {
+    if (!selectedLayer) return;
+    const map: NonNullable<Layer['styleOverridesByStyle']> = { ...(selectedLayer.styleOverridesByStyle ?? {}) };
+    const styleTokens = (stylesById.get(chipId)?.classes ?? '').split(' ').filter(Boolean).sort().join(' ');
+    const nextTokens = newClassesStr.split(' ').filter(Boolean).sort().join(' ');
+    if (nextTokens === styleTokens) {
+      delete map[chipId];
+    } else {
+      map[chipId] = { classes: newClassesStr, design: buildDesign(newClassesStr) };
     }
+    const hasMap = Object.keys(map).length > 0;
+    // Per-chip overrides supersede the legacy single-blob override; drop it so a
+    // stale blob can't mask the edit at the top of the cascade.
+    const probe: Pick<Layer, 'styleIds' | 'styleOverridesByStyle' | 'styleOverrides'> = {
+      styleIds: appliedStyleIds,
+      styleOverridesByStyle: hasMap ? map : undefined,
+    };
+    const resolved = resolveLayerClasses(probe, stylesById);
+    handleLayerUpdate(selectedLayer.id, {
+      styleOverridesByStyle: hasMap ? map : undefined,
+      styleOverrides: undefined,
+      classes: resolved,
+      design: buildDesign(resolved),
+    });
+  }, [selectedLayer, appliedStyleIds, stylesById, handleLayerUpdate]);
 
-    // 2. Check for classes overridden by layer's custom classes (conflict detection)
-    if (layerOnlyClasses.length > 0) {
-      for (const layerClass of layerOnlyClasses) {
-        const classesWithoutConflicts = removeConflictsForClass(styleClassesArray, layerClass);
-
-        for (const styleClass of styleClassesArray) {
-          if (!classesWithoutConflicts.includes(styleClass)) {
-            overridden.add(styleClass);
-          }
-        }
-      }
+  // Design-control edits while a chip is active are the chip's new classes — store
+  // them as that chip's override. Non-style fields (variables, etc.) and edits on
+  // style-less layers pass straight through to the layer.
+  const handleDesignUpdate = useCallback((layerId: string, updates: Partial<Layer>) => {
+    const chip = activeStyleIdRef.current;
+    if (!chip || updates.classes === undefined) {
+      handleLayerUpdate(layerId, updates);
+      return;
     }
+    const { classes, design: _design, styleOverrides: _so, ...rest } = updates;
+    if (Object.keys(rest).length > 0) handleLayerUpdate(layerId, rest);
+    const str = Array.isArray(classes) ? classes.join(' ') : classes;
+    applyChipClasses(chip, str);
+  }, [handleLayerUpdate, applyChipClasses]);
 
-    // 3. Check for classes from properties explicitly removed on the layer
-    if (appliedStyle?.design && selectedLayer) {
-      const removedClasses = getRemovedPropertyClasses(
-        selectedLayer.design,
-        appliedStyle.design,
-        styleClassesArray
-      );
-      removedClasses.forEach(cls => overridden.add(cls));
-    }
+  // Classes section sources. With a style stack, the panel is chip-scoped: it
+  // shows the active chip's effective classes. Style-less layers — and rich-text
+  // inline-style editing, which edits a text style rather than the layer stack —
+  // show their own classes (from `classesInput`) instead.
+  const styleClassesArray = showTextStyleControls ? [] : activeChipClassTokens;
+  const layerOnlyClasses =
+    showTextStyleControls || appliedStyleIds.length === 0 ? classesArray : [];
 
-    return overridden;
-  }, [classesArray, layerOnlyClasses, styleClassesArray, appliedStyle, selectedLayer]);
+  // Design controls bind to the active chip's proxy layer (and route edits to a
+  // per-chip override) unless we're editing a rich-text inline style, where the
+  // text-style path inside useDesignSync owns the update.
+  const controlLayer = showTextStyleControls ? selectedLayer : designLayer;
+  const controlUpdate = showTextStyleControls ? handleLayerUpdate : handleDesignUpdate;
 
   // Update local state when selected layer changes (for settings fields)
   const [prevSelectedLayerId, setPrevSelectedLayerId] = useState<string | null>(null);
@@ -809,17 +865,12 @@ const RightSidebar = React.memo(function RightSidebar({
   const addClass = useCallback((newClass: string) => {
     if (!newClass.trim() || !selectedLayer) return;
     const trimmedClass = newClass.trim();
-    if (classesArray.includes(trimmedClass)) return; // Don't add duplicates
 
-    // Remove any conflicting classes before adding the new one
-    const classesWithoutConflicts = removeConflictsForClass(classesArray, trimmedClass);
-
-    // Add the new class (after removing conflicts)
-    const newClasses = [...classesWithoutConflicts, trimmedClass].join(' ');
-
-    // In text edit mode with a text style selected, update the text style
-    // Initialize with DEFAULT_TEXT_STYLES if layer doesn't have textStyles yet
+    // Text edit mode with a text style selected: update the text style.
     if (showTextStyleControls && activeTextStyleKey) {
+      if (classesArray.includes(trimmedClass)) return;
+      const classesWithoutConflicts = removeConflictsForClass(classesArray, trimmedClass);
+      const newClasses = [...classesWithoutConflicts, trimmedClass].join(' ');
       const parsedDesign = classesToDesign([trimmedClass]);
       const currentTextStyles = selectedLayer.textStyles ?? { ...DEFAULT_TEXT_STYLES };
       const currentTextStyle = currentTextStyles[activeTextStyleKey] || { design: {}, classes: '' };
@@ -828,27 +879,34 @@ const RightSidebar = React.memo(function RightSidebar({
       handleLayerUpdate(selectedLayer.id, {
         textStyles: {
           ...currentTextStyles,
-          [activeTextStyleKey]: {
-            ...currentTextStyle,
-            classes: newClasses,
-            design: updatedDesign,
-          },
+          [activeTextStyleKey]: { ...currentTextStyle, classes: newClasses, design: updatedDesign },
         },
       });
-    } else {
-      // Otherwise, update the layer itself
-      const parsedDesign = classesToDesign([trimmedClass]);
-      const updatedDesign = mergeDesign(selectedLayer.design, parsedDesign);
-
-      handleLayerUpdate(selectedLayer.id, {
-        classes: newClasses,
-        design: updatedDesign
-      });
+      setClassesInput(newClasses);
+      setCurrentClassInput('');
+      return;
     }
 
+    // Style stack active: add the class to the active chip's override.
+    const chip = activeLayerStyleId;
+    if (chip) {
+      if (activeChipClassTokens.includes(trimmedClass)) return;
+      const withoutConflicts = removeConflictsForClass(activeChipClassTokens, trimmedClass);
+      applyChipClasses(chip, [...withoutConflicts, trimmedClass].join(' '));
+      setCurrentClassInput('');
+      return;
+    }
+
+    // Style-less layer: update the layer's own classes.
+    if (classesArray.includes(trimmedClass)) return;
+    const classesWithoutConflicts = removeConflictsForClass(classesArray, trimmedClass);
+    const newClasses = [...classesWithoutConflicts, trimmedClass].join(' ');
+    const parsedDesign = classesToDesign([trimmedClass]);
+    const updatedDesign = mergeDesign(selectedLayer.design, parsedDesign);
+    handleLayerUpdate(selectedLayer.id, { classes: newClasses, design: updatedDesign });
     setClassesInput(newClasses);
     setCurrentClassInput('');
-  }, [classesArray, handleLayerUpdate, selectedLayer, showTextStyleControls, activeTextStyleKey]);
+  }, [classesArray, activeChipClassTokens, activeLayerStyleId, applyChipClasses, handleLayerUpdate, selectedLayer, showTextStyleControls, activeTextStyleKey]);
 
   // Remove class function
   const removeClass = useCallback((classToRemove: string) => {
@@ -876,62 +934,12 @@ const RightSidebar = React.memo(function RightSidebar({
     }
   }, [classesArray, handleClassesChange, selectedLayer, showTextStyleControls, activeTextStyleKey, handleLayerUpdate]);
 
-  // Remove a class that belongs to the applied style — tracks as styleOverrides
+  // Remove a class from the active chip's override (style stack active).
   const removeStyleClass = useCallback((classToRemove: string) => {
-    if (!selectedLayer) return;
-    const newClasses = classesArray.filter(cls => cls !== classToRemove).join(' ');
-    setClassesInput(newClasses);
-    handleLayerUpdate(selectedLayer.id, {
-      classes: newClasses,
-      styleOverrides: {
-        classes: newClasses,
-        design: selectedLayer.styleOverrides?.design ?? selectedLayer.design,
-      },
-    });
-  }, [classesArray, handleLayerUpdate, selectedLayer]);
-
-  // Whether the style has any overrides (classes or design)
-  const styleHasOverrides = useMemo(() => {
-    if (!appliedStyle || !selectedLayer) return false;
-    return hasStyleOverrides(selectedLayer, appliedStyle);
-  }, [appliedStyle, selectedLayer]);
-
-  // Update the style definition with current layer values
-  const handleUpdateStyleFromClasses = useCallback(async () => {
-    if (!selectedLayer || !appliedStyle) return;
-    const currentClasses = classesInput;
-    const currentDesign = selectedLayer.design;
-
-    await updateStyle(appliedStyle.id, {
-      classes: currentClasses,
-      design: currentDesign,
-    });
-
-    updateStyleAcrossStores(appliedStyle.id, currentClasses, currentDesign);
-    handleLayerUpdate(selectedLayer.id, { styleOverrides: undefined });
-
-    if (liveLayerStyleUpdates) {
-      liveLayerStyleUpdates.broadcastStyleUpdate(appliedStyle.id, {
-        classes: currentClasses,
-        design: currentDesign,
-      });
-    }
-  }, [selectedLayer, appliedStyle, classesInput, updateStyle, handleLayerUpdate, liveLayerStyleUpdates]);
-
-  // Reset overrides back to the style's original classes/design
-  const handleResetStyleOverrides = useCallback(() => {
-    if (!selectedLayer || !appliedStyle) return;
-    const updatedLayer = resetLayerToStyle(selectedLayer, appliedStyle);
-    const resetClasses = Array.isArray(updatedLayer.classes)
-      ? updatedLayer.classes.join(' ')
-      : updatedLayer.classes || '';
-    setClassesInput(resetClasses);
-    handleLayerUpdate(selectedLayer.id, {
-      classes: updatedLayer.classes,
-      design: updatedLayer.design,
-      styleOverrides: undefined,
-    });
-  }, [selectedLayer, appliedStyle, handleLayerUpdate]);
+    const chip = activeStyleIdRef.current;
+    if (!selectedLayer || !chip) return;
+    applyChipClasses(chip, activeChipClassTokens.filter(cls => cls !== classToRemove).join(' '));
+  }, [selectedLayer, activeChipClassTokens, applyChipClasses]);
 
   // Handle key press for adding classes
   const handleKeyPress = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -1893,6 +1901,8 @@ const RightSidebar = React.memo(function RightSidebar({
                 pageId={currentPageId}
                 onLayerUpdate={handleLayerUpdate}
                 activeTextStyleKey={selectedLayer && isRichTextLayer(selectedLayer) ? activeTextStyleKey : null}
+                activeStyleId={activeLayerStyleId}
+                onActiveStyleChange={setActiveStyleId}
               />
             )}
 
@@ -1905,25 +1915,25 @@ const RightSidebar = React.memo(function RightSidebar({
           <div className="overflow-y-auto no-scrollbar overflow-x-hidden divide-y ">
 
           {shouldShowControl('layout', selectedLayer) && !showTextStyleControls && (
-            <LayoutControls layer={selectedLayer} onLayerUpdate={handleLayerUpdate} />
+            <LayoutControls layer={controlLayer} onLayerUpdate={controlUpdate} />
           )}
 
           {shouldShowControl('spacing', selectedLayer) && (
             <SpacingControls
-              layer={selectedLayer}
-              onLayerUpdate={handleLayerUpdate}
+              layer={controlLayer}
+              onLayerUpdate={controlUpdate}
               activeTextStyleKey={activeTextStyleKey}
             />
           )}
 
           {shouldShowControl('sizing', selectedLayer) && !showTextStyleControls && (
-            <SizingControls layer={selectedLayer} onLayerUpdate={handleLayerUpdate} />
+            <SizingControls layer={controlLayer} onLayerUpdate={controlUpdate} />
           )}
 
           {shouldShowControl('typography', selectedLayer) && (
             <TypographyControls
-              layer={selectedLayer}
-              onLayerUpdate={handleLayerUpdate}
+              layer={controlLayer}
+              onLayerUpdate={controlUpdate}
               activeTextStyleKey={activeTextStyleKey}
               fieldGroups={fieldGroups}
               allFields={fields}
@@ -1933,8 +1943,8 @@ const RightSidebar = React.memo(function RightSidebar({
 
           {shouldShowControl('backgrounds', selectedLayer) && (
             <BackgroundsControls
-              layer={selectedLayer}
-              onLayerUpdate={handleLayerUpdate}
+              layer={controlLayer}
+              onLayerUpdate={controlUpdate}
               activeTextStyleKey={activeTextStyleKey}
               fieldGroups={fieldGroups}
               allFields={fields}
@@ -1944,8 +1954,8 @@ const RightSidebar = React.memo(function RightSidebar({
 
           {shouldShowControl('borders', selectedLayer) && (
             <BorderControls
-              layer={selectedLayer}
-              onLayerUpdate={handleLayerUpdate}
+              layer={controlLayer}
+              onLayerUpdate={controlUpdate}
               activeTextStyleKey={activeTextStyleKey}
               fieldGroups={fieldGroups}
               allFields={fields}
@@ -1955,22 +1965,22 @@ const RightSidebar = React.memo(function RightSidebar({
 
           {shouldShowControl('effects', selectedLayer) && (
             <EffectControls
-              layer={selectedLayer}
-              onLayerUpdate={handleLayerUpdate}
+              layer={controlLayer}
+              onLayerUpdate={controlUpdate}
               activeTextStyleKey={activeTextStyleKey}
             />
           )}
 
           {shouldShowControl('position', selectedLayer) && !showTextStyleControls && (
-            <PositionControls layer={selectedLayer} onLayerUpdate={handleLayerUpdate} />
+            <PositionControls layer={controlLayer} onLayerUpdate={controlUpdate} />
           )}
 
           {shouldShowControl('transforms', selectedLayer) && (
-            <TransformControls layer={selectedLayer} onLayerUpdate={handleLayerUpdate} />
+            <TransformControls layer={controlLayer} onLayerUpdate={controlUpdate} />
           )}
 
           {shouldShowControl('transitions', selectedLayer) && (
-            <TransitionControls layer={selectedLayer} onLayerUpdate={handleLayerUpdate} />
+            <TransitionControls layer={controlLayer} onLayerUpdate={controlUpdate} />
           )}
 
           {/* Classes panel - shows classes for active text style or layer */}
@@ -2012,42 +2022,35 @@ const RightSidebar = React.memo(function RightSidebar({
                 </div>
               )}
 
-              {/* Layer style classes (removable, strikethrough if overridden) */}
+              {/* Active chip's classes (the style currently selected above) */}
               {styleClassesArray.length > 0 && (
                 <div className="flex flex-col gap-2.5">
                   <div className="py-1 w-full flex items-center gap-2">
                     <Separator className="flex-1" />
                     <div className="text-xs text-muted-foreground">
-                      <span className="font-semibold">{appliedStyle?.name}</span> classes
+                      <span className="font-semibold">{activeChipStyle?.name}</span> classes
                     </div>
                     <Separator className="flex-1" />
                   </div>
 
                   <div className="flex flex-wrap gap-1.5">
-                    {styleClassesArray.map((cls, index) => {
-                      const isOverridden = overriddenStyleClasses.has(cls);
-                      return (
-                        <Badge
-                          variant="secondary"
-                          key={`style-${index}`}
-                          className="opacity-60 truncate max-w-50"
+                    {styleClassesArray.map((cls, index) => (
+                      <Badge
+                        variant="secondary"
+                        key={`style-${index}`}
+                        className="truncate max-w-50"
+                      >
+                        <span className="truncate">{cls}</span>
+                        <Button
+                          onClick={() => removeStyleClass(cls)}
+                          className="size-4! p-0! -mr-1"
+                          variant="outline"
+                          disabled={isLockedByOther}
                         >
-                          <span className={isOverridden ? 'line-through truncate' : 'truncate'}>
-                            {cls}
-                          </span>
-                          {!isOverridden && (
-                            <Button
-                              onClick={() => removeStyleClass(cls)}
-                              className="size-4! p-0! -mr-1"
-                              variant="outline"
-                              disabled={isLockedByOther}
-                            >
-                              <Icon name="x" className="size-2" />
-                            </Button>
-                          )}
-                        </Badge>
-                      );
-                    })}
+                          <Icon name="x" className="size-2" />
+                        </Button>
+                      </Badge>
+                    ))}
                   </div>
                 </div>
               )}

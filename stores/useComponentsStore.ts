@@ -16,7 +16,7 @@ import {
 import { detachStyleFromLayers, updateLayersWithStyle } from '@/lib/layer-style-utils';
 import { scheduleIdle } from '@/lib/schedule-idle';
 import { generateId } from '@/lib/utils';
-import type { Component, ComponentVariant, Layer } from '@/types';
+import type { Component, ComponentVariant, Layer, LayerStyle } from '@/types';
 
 /**
  * Per-component, per-variant working copy of layers used while editing a
@@ -203,8 +203,8 @@ interface ComponentsActions {
   deleteTextVariable: (componentId: string, variableId: string) => Promise<void>;
 
   // Layer style operations
-  updateStyleOnLayers: (styleId: string, newClasses: string, newDesign?: Layer['design']) => void;
-  detachStyleFromAllLayers: (styleId: string) => void;
+  updateStyleOnLayers: (styleId: string, stylesById: Map<string, LayerStyle>) => void;
+  detachStyleFromAllLayers: (styleId: string, stylesById?: Map<string, LayerStyle>) => void;
 
   // State management
   setError: (error: string | null) => void;
@@ -1638,16 +1638,16 @@ export const useComponentsStore = create<ComponentsStore>((set, get) => {
      * Update all layers using a specific style across all components
      * Used when a style is updated
      */
-    updateStyleOnLayers: (styleId, newClasses, newDesign) => {
-      updateComponentLayers((layers) => updateLayersWithStyle(layers, styleId, newClasses, newDesign));
+    updateStyleOnLayers: (styleId, stylesById) => {
+      updateComponentLayers((layers) => updateLayersWithStyle(layers, styleId, stylesById));
     },
 
     /**
      * Detach a style from all layers across all components
      * Used when a style is deleted
      */
-    detachStyleFromAllLayers: (styleId) => {
-      updateComponentLayers((layers) => detachStyleFromLayers(layers, styleId));
+    detachStyleFromAllLayers: (styleId, stylesById) => {
+      updateComponentLayers((layers) => detachStyleFromLayers(layers, styleId, stylesById));
     },
 
     // Error management

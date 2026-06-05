@@ -4,6 +4,7 @@ import type { DesignProperties, Layer } from '@/types';
 import { getAllStyles, createStyle, updateStyle, deleteStyle } from '@/lib/repositories/layerStyleRepository';
 import { getCachedDraft, saveCachedLayers } from '@/lib/mcp/page-layers';
 import { findLayerById, updateLayerById, designToClassString } from '@/lib/mcp/utils';
+import { applyStyleToLayer } from '@/lib/layer-style-utils';
 import { designSchema } from './shared-schemas';
 
 export function registerStyleTools(server: McpServer) {
@@ -56,7 +57,13 @@ export function registerStyleTools(server: McpServer) {
         return { content: [{ type: 'text' as const, text: `Error: Layer "${layer_id}" not found.` }], isError: true };
       }
 
-      const updated = updateLayerById(layers, layer_id, (l) => ({ ...l, styleId: style_id }));
+      const style = (await getAllStyles()).find((s) => s.id === style_id);
+      if (!style) {
+        return { content: [{ type: 'text' as const, text: `Error: Style "${style_id}" not found.` }], isError: true };
+      }
+
+      // Apply as the layer's style, flattening its classes/design for the render.
+      const updated = updateLayerById(layers, layer_id, (l) => applyStyleToLayer(l, style));
       await saveCachedLayers(page_id, updated);
 
       return { content: [{ type: 'text' as const, text: `Applied style "${style_id}" to "${layer.customName || layer.name}"` }] };

@@ -4,6 +4,7 @@
  */
 
 import { ToastError } from '@/lib/toast-error';
+import { WEBFLOW_SETTINGS } from './constants';
 import type { WebflowImport, WebflowSite, SyncResult } from './types';
 
 const BASE = '/ycode/api/apps/webflow';
@@ -55,7 +56,7 @@ export const webflowApi = {
 
   testToken: (apiToken: string) =>
     jsonPost<{ valid: boolean; error?: string }>(`${BASE}/test`, {
-      api_token: apiToken,
+      [WEBFLOW_SETTINGS.apiToken]: apiToken,
     }),
 
   listSites: () => jsonFetch<WebflowSite[]>(`${BASE}/sites`),
@@ -78,4 +79,14 @@ export const webflowApi = {
     jsonFetch<{ success: boolean }>(`${BASE}/imports/${importId}`, {
       method: 'DELETE',
     }),
+
+  /**
+   * Resolve a published site's global stylesheet. Used by the Design section to
+   * verify a site URL before saving, and by the paste importer to backfill
+   * global styles. Returns the discovered stylesheet URL when found.
+   */
+  resolveStylesheet: (site: string) =>
+    jsonFetch<{ css: string; stylesheetUrl?: string }>(
+      `${BASE}/stylesheet?site=${encodeURIComponent(site)}`,
+    ),
 };

@@ -148,6 +148,7 @@ export const designSchema = z.object({
     backdropBlur: z.string().optional(),
     filter: z.string().optional().describe('CSS filter, e.g. "grayscale(1)" or "brightness(0.5)"'),
     backdropFilter: z.string().optional().describe('CSS backdrop-filter, e.g. "saturate(180%)"'),
+    mixBlendMode: z.string().optional().describe('CSS mix-blend-mode, e.g. "multiply", "screen", "overlay"'),
   }).optional(),
   positioning: z.object({
     isActive: z.boolean().optional(),

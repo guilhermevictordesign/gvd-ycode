@@ -123,6 +123,7 @@ export interface EffectsDesign {
   backdropBlur?: string;
   filter?: string;
   backdropFilter?: string;
+  mixBlendMode?: string;
 }
 
 export interface PositioningDesign {
@@ -292,6 +293,8 @@ export interface LayerStyle {
   id: string;
   name: string;
   group?: string; // Element category (e.g. "text", "block", "button") for scoped filtering
+  /** Role within a combo-class stack. Used for UI affordances (base vs combo vs synced global). */
+  kind?: 'base' | 'combo' | 'global';
 
   // Style data
   classes: string;
@@ -405,11 +408,38 @@ export interface Layer {
   settings?: LayerSettings;
 
   // Layer Styles (reusable design system)
-  styleId?: string; // Reference to applied LayerStyle
+  /**
+   * @deprecated Use `styleIds`. A single applied LayerStyle. Still read for
+   * backward compatibility via `getStyleIds()` and migrated to `styleIds` on
+   * the next write.
+   */
+  styleId?: string;
+  /**
+   * Ordered stack of applied LayerStyles, low to high priority (base class
+   * first, combo classes after). Mirrors Webflow's combo-class chain. The flat
+   * `classes` string is derived from this stack (plus `styleOverrides`) via
+   * `resolveLayerClasses`.
+   */
+  styleIds?: string[];
   styleOverrides?: {
     classes?: string;
     design?: DesignProperties;
-  }; // Tracks local changes after style applied
+    /**
+     * @deprecated Per-chip overrides now live in `styleOverridesByStyle`. This
+     * single highest-priority blob is kept for backward compatibility (legacy
+     * layers/imports) and is still applied last by `resolveLayerClasses`.
+     */
+    styleId?: string;
+  }; // Legacy: local changes after style applied (highest priority)
+  /**
+   * Per-style local overrides, keyed by the `LayerStyle` id in the stack. Each
+   * entry REPLACES that style's classes for THIS layer only (the rest of the
+   * stack still cascades around it). This is what makes customization unique to
+   * the selected chip: editing while "Heading 3" is active writes
+   * `styleOverridesByStyle["heading-3-id"]`, shows "Customized" on that chip
+   * only, and "Update" folds just that entry back into the shared style.
+   */
+  styleOverridesByStyle?: Record<string, { classes?: string; design?: DesignProperties }>;
 
   // Components (reusable layer trees)
   componentId?: string; // Reference to applied Component

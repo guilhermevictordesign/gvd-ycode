@@ -20,8 +20,11 @@ import { useCanvasPortalContainer, useCanvasZoom } from '@/lib/canvas-portal-con
 import { useEditorStore } from '@/stores/useEditorStore';
 import { usePagesStore } from '@/stores/usePagesStore';
 import { useClipboardStore } from '@/stores/useClipboardStore';
+import { useExternalPasteStore } from '@/stores/useExternalPasteStore';
+import { isClipboardReadGranted, readExternalDesignClipboard } from '@/lib/import/clipboard-detect';
 import { useComponentsStore } from '@/stores/useComponentsStore';
 import { canHaveChildren, canPasteIntoParent, LINK_NESTING_ERROR, findLayerById, getClassesString, regenerateInteractionIds, canCopyLayer, canDeleteLayer, regenerateIdsWithInteractionRemapping, removeLayerById, findParentAndIndex, insertLayerAfter, updateLayerProps, canConvertToCollection, isExcludedFromCollection, getCollectionVariable, resetBindingsOnCollectionSourceChange } from '@/lib/layer-utils';
+import { getStyleIds } from '@/lib/layer-style-resolve';
 import { getLayerIcon, getLayerName } from '@/lib/layer-display-utils';
 import { cloneDeep } from 'lodash';
 import { toast } from 'sonner';
@@ -159,7 +162,13 @@ function LayerContextMenuInner({
   const pasteInteractionsFromClipboard = useClipboardStore((state) => state.pasteInteractions);
   const copiedInteractions = useClipboardStore((state) => state.copiedInteractions);
 
+  // Design-tool clipboard (Webflow/Figma) detected when the menu opened, plus
+  // the registered runner that imports it at a chosen placement.
+  const externalKind = useExternalPasteStore((state) => state.kind);
+  const pasteExternalAt = useExternalPasteStore((state) => state.pasteAt);
+
   const hasClipboard = clipboardLayer !== null;
+  const hasExternal = externalKind !== null && pasteExternalAt !== null;
   const hasStyleClipboard = copiedStyle !== null;
   const hasInteractionsClipboard = copiedInteractions !== null;
 
@@ -275,6 +284,14 @@ function LayerContextMenuInner({
   };
 
   const handlePasteAfter = () => {
+    // A Webflow/Figma copy on the OS clipboard means the freshest copy was
+    // external (an internal copy stamps the OS clipboard with the Ycode marker,
+    // which detection ignores), so it wins over a stale internal clipboard —
+    // matching the keyboard ⌘V behaviour. Import it as a sibling after target.
+    if (hasExternal) {
+      if (!isBody) pasteExternalAt?.({ mode: 'after', layerId });
+      return;
+    }
     if (!clipboardLayer) return;
 
     if (isComponentContext && editingComponentId) {
@@ -306,6 +323,11 @@ function LayerContextMenuInner({
   };
 
   const handlePasteInside = () => {
+    // External clipboard wins over a stale internal one (see handlePasteAfter).
+    if (hasExternal) {
+      if (canPasteInside) pasteExternalAt?.({ mode: 'inside', layerId });
+      return;
+    }
     if (!clipboardLayer || !canPasteInside) return;
 
     if (isComponentContext && editingComponentId) {
@@ -390,7 +412,8 @@ function LayerContextMenuInner({
     if (!layer) return;
 
     const classes = getClassesString(layer);
-    copyStyleToClipboard(classes, layer.design, layer.styleId, layer.styleOverrides);
+    const ids = getStyleIds(layer);
+    copyStyleToClipboard(classes, layer.design, ids[0], layer.styleOverrides, ids);
   };
 
   const handlePasteStyle = () => {
@@ -400,8 +423,10 @@ function LayerContextMenuInner({
     const styleProps = {
       classes: style.classes,
       design: style.design,
-      styleId: style.styleId,
+      styleId: style.styleIds?.[0] ?? style.styleId,
+      styleIds: style.styleIds ?? (style.styleId ? [style.styleId] : undefined),
       styleOverrides: style.styleOverrides,
+      styleOverridesByStyle: undefined,
     };
 
     if (isComponentContext && editingComponentId) {
@@ -786,12 +811,22 @@ function LayerContextMenuInner({
             container={canvasPortalContainer}
             style={canvasPortalContainer ? { zoom: 100 / canvasZoom } : undefined}
           >
-            <ContextMenuItem onClick={handlePasteAfter} disabled={!hasClipboard || isBody || !canPasteAfterTarget}>
+            {hasExternal && (
+              <>
+                <ContextMenuLabel className="flex items-center gap-1.5 font-normal text-muted-foreground select-none">
+                  <Icon name={externalKind === 'figma' ? 'figma' : 'webflow'} className="size-3" />
+                  <span>From {externalKind === 'figma' ? 'Figma' : 'Webflow'}</span>
+                </ContextMenuLabel>
+                <ContextMenuSeparator />
+              </>
+            )}
+
+            <ContextMenuItem onClick={handlePasteAfter} disabled={(!hasClipboard && !hasExternal) || isBody || !canPasteAfterTarget}>
               Paste after
               <ContextMenuShortcut>⌘V</ContextMenuShortcut>
             </ContextMenuItem>
 
-            <ContextMenuItem onClick={handlePasteInside} disabled={!hasClipboard || !canPasteInside}>
+            <ContextMenuItem onClick={handlePasteInside} disabled={(!hasClipboard && !hasExternal) || !canPasteInside}>
               Paste inside
               <ContextMenuShortcut>⌘⇧V</ContextMenuShortcut>
             </ContextMenuItem>
@@ -989,6 +1024,17 @@ function LayerContextMenu({
       if (open) {
         dismissActiveContextMenu();
         activeMenuDocument = canvasPortalContainer?.ownerDocument ?? document;
+
+        // Detect a Webflow/Figma copy on the OS clipboard so the Paste submenu
+        // can offer "Paste after / inside". Best-effort and silent: only read
+        // when clipboard access is already granted, so a right-click never
+        // triggers a permission prompt. When access isn't granted the items
+        // stay disabled — the keyboard ⌘V import path is unaffected.
+        useExternalPasteStore.getState().setKind(null);
+        void isClipboardReadGranted()
+          .then((granted) => (granted ? readExternalDesignClipboard() : null))
+          .then((data) => useExternalPasteStore.getState().setKind(data?.kind ?? null))
+          .catch(() => useExternalPasteStore.getState().setKind(null));
       }
 
       if (open && onLayerSelect) {

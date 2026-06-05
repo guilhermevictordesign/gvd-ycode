@@ -242,7 +242,8 @@ export const useLayerStylesStore = create<LayerStylesStore>((set, get) => ({
             const layerIds: string[] = [];
             const traverse = (layerList: Layer[]) => {
               for (const layer of layerList) {
-                if (layer.styleId === styleId) {
+                const ids = layer.styleIds ?? (layer.styleId ? [layer.styleId] : []);
+                if (ids.includes(styleId)) {
                   layerIds.push(layer.id);
                 }
                 if (layer.children && layer.children.length > 0) {

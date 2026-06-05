@@ -342,6 +342,7 @@ const CLASS_PROPERTY_MAP: Record<string, RegExp> = {
   boxShadow: /^shadow(-none|-sm|-md|-lg|-xl|-2xl|-inner|-\[.+\])?$/,
   blur: /^blur(-none|-sm|-md|-lg|-xl|-2xl|-3xl|-\[.+\])?$/,
   backdropBlur: /^backdrop-blur(-none|-sm|-md|-lg|-xl|-2xl|-3xl|-\[.+\])?$/,
+  mixBlendMode: /^mix-blend-(normal|multiply|screen|overlay|darken|lighten|color-dodge|color-burn|hard-light|soft-light|difference|exclusion|hue|saturation|color|luminosity)$/,
 
   // Positioning
   position: /^(static|fixed|absolute|relative|sticky)$/,
@@ -933,6 +934,9 @@ export function propertyToClass(
           return `backdrop-blur-${value}`;
         }
         return `backdrop-blur-[${value}]`;
+      case 'mixBlendMode':
+        if (value === 'normal') return '';
+        return `mix-blend-${value}`;
     }
   }
 
@@ -1223,11 +1227,13 @@ export function classesToDesign(classes: string | string[]): Layer['design'] {
     cls.startsWith('bg-[') && extractArbitraryValue(cls)?.includes('gradient(')
   );
 
-  // If we have all the gradient text indicators, extract the gradient and store as text color
+  // If we have all the gradient text indicators, extract the gradient and store as text color.
+  // Arbitrary Tailwind values encode spaces as underscores (e.g. "#605dba_20%"), so restore
+  // them — an un-decoded gradient is invalid CSS and the text-transparent fill renders blank.
   if (hasBgClipText && hasTextTransparent && gradientBgClass) {
     const gradientValue = extractArbitraryValue(gradientBgClass);
     if (gradientValue) {
-      design.typography!.color = gradientValue;
+      design.typography!.color = gradientValue.replace(/_/g, ' ');
     }
   }
 
@@ -1719,6 +1725,12 @@ export function classesToDesign(classes: string | string[]): Layer['design'] {
     } else if (cls.match(/^backdrop-blur-(sm|md|lg|xl|2xl|3xl)$/)) {
       const match = cls.match(/^backdrop-blur-(.+)$/);
       if (match) design.effects!.backdropBlur = match[1];
+    }
+
+    // Mix Blend Mode
+    if (cls.startsWith('mix-blend-')) {
+      const match = cls.match(/^mix-blend-(.+)$/);
+      if (match) design.effects!.mixBlendMode = match[1];
     }
 
     // ===== POSITIONING =====

@@ -42,7 +42,6 @@ import { canHaveChildren, getCollectionVariable, isTextContentLayer, isRichTextL
 import { getLayerIcon, getLayerName } from '@/lib/layer-display-utils';
 import { getBlockName } from '@/lib/templates/blocks';
 import { MULTI_ASSET_COLLECTION_ID } from '@/lib/collection-field-utils';
-import { hasStyleOverrides } from '@/lib/layer-style-utils';
 import { getUserInitials, getDisplayName } from '@/lib/collaboration-utils';
 import { getBreakpointPrefix } from '@/lib/breakpoint-utils';
 import { Input } from '@/components/ui/input';

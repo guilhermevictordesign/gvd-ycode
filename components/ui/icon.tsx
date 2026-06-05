@@ -18,6 +18,7 @@ export interface IconProps extends React.SVGProps<SVGSVGElement> {
     | 'paragraph' | 'droplet' | 'expand' | 'collapse' | 'filter' | 'crosshair' | 'lightbox' | 'slider' | 'slide' | 'slides' | 'slide-button-prev' | 'slide-button-next'
     | 'slide-bullets' | 'slide-bullet' | 'slide-navigation' | 'slide-fraction' | 'loop-alternate' | 'loop-repeat' | 'listItem' | 'external-link'
     | 'settings' | 'center-block' | 'code-block' | 'table' | 'table-row' | 'table-cell' | 'add-column' | 'add-row' | 'delete-column' | 'delete-row' | 'delete-table' | 'header' | 'body'
+    | 'webflow' | 'figma'
   );
 }
 
@@ -1034,6 +1035,17 @@ const ICONS: Record<IconProps['name'], React.ReactNode> = {
   ),
   settings: (
     <path d="M3.0854 9C3.2913 8.4174 3.8469 8 4.5 8C5.1531 8 5.7087 8.4174 5.9147 9H11V10H5.9147C5.7087 10.5826 5.1531 11 4.5 11C3.8469 11 3.2913 10.5826 3.0854 10H1V9H3.0854ZM6.0854 5.5C6.2913 4.9174 6.8469 4.5 7.5 4.5C8.1531 4.5 8.7087 4.9174 8.9147 5.5H11V6.5H8.9147C8.7087 7.0826 8.1531 7.5 7.5 7.5C6.8469 7.5 6.2913 7.0826 6.0854 6.5H1V5.5H6.0854ZM3.0854 2C3.2913 1.4174 3.8469 1 4.5 1C5.1531 1 5.7087 1.4174 5.9147 2H11V3H5.9147C5.7087 3.5826 5.1531 4 4.5 4C3.8469 4 3.2913 3.5826 3.0854 3H1V2H3.0854Z" />
+  ),
+  // Brand marks scaled from a 0 0 24 24 source into the icon's 0 0 12 12 box.
+  webflow: (
+    <g transform="scale(0.5)">
+      <path d="M24 4.515l-7.658 14.97H9.149l3.205-6.204h-.144C9.566 16.713 5.621 18.973 0 19.485v-6.118s3.596-.213 5.71-2.435H0V4.515h6.417v5.278l.144-.001 2.622-5.277h4.854v5.244h.144l2.72-5.244H24z" />
+    </g>
+  ),
+  figma: (
+    <g transform="scale(0.5)">
+      <path d="M8 24c2.208 0 4-1.792 4-4v-4H8c-2.208 0-4 1.792-4 4s1.792 4 4 4zm-4-8c0-2.208 1.792-4 4-4h4v8H8c-2.208 0-4-1.792-4-4zm0-8c0-2.208 1.792-4 4-4h4v8H8c-2.208 0-4-1.792-4-4zm8-4h4c2.208 0 4 1.792 4 4s-1.792 4-4 4h-4V4zm0 8h4c2.208 0 4 1.792 4 4s-1.792 4-4 4-4-1.792-4-4v-4z" />
+    </g>
   ),
 };
 

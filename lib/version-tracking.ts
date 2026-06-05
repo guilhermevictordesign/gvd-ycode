@@ -9,6 +9,7 @@ import type { VersionEntityType, CreateVersionData, Layer, VersionMetadata } fro
 import { createPatch, createInversePatch, isPatchEmpty, doesPatchChangeState, generatePatchDescription, JsonPatch } from '@/lib/version-utils';
 import { generatePageLayersHash, generateComponentContentHash, generateLayerStyleContentHash } from '@/lib/hash-utils';
 import { stripUIProperties } from '@/lib/layer-utils';
+import { getStyleIds } from '@/lib/layer-style-resolve';
 import { useEditorStore } from '@/stores/useEditorStore';
 
 // In-memory cache for previous states (per session).
@@ -497,8 +498,8 @@ function extractLayerStyleIds(layers: Layer[]): string[] {
 
   function traverse(layerList: Layer[]) {
     for (const layer of layerList) {
-      if (layer.styleId) {
-        styleIds.add(layer.styleId);
+      for (const id of getStyleIds(layer)) {
+        styleIds.add(id);
       }
       if (layer.children && layer.children.length > 0) {
         traverse(layer.children);
