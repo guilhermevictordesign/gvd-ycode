@@ -22,7 +22,7 @@ import { DEFAULT_ASSETS, ASSET_CATEGORIES, isAssetOfType } from '@/lib/asset-uti
 import { parseMultiAssetFieldValue, buildAssetVirtualValues } from '@/lib/multi-asset-utils';
 import { parseMultiReferenceValue, resolveReferenceFieldsSync } from '@/lib/collection-utils';
 import { MULTI_ASSET_COLLECTION_ID } from '@/lib/collection-field-utils';
-import { buildImageSizes, generateImageSrcset, getOptimizedImageUrl, parseImageDimension } from '@/lib/asset-utils';
+import { buildImageSizes, generateImageSrcset, getOptimizedImageUrl, getSvgAspectRatioStyle, parseImageDimension } from '@/lib/asset-utils';
 import { useEditorStore } from '@/stores/useEditorStore';
 import { toast } from 'sonner';
 import { resolveInlineVariablesFromData } from '@/lib/inline-variables';
@@ -46,7 +46,7 @@ import FilterableCollection from '@/components/FilterableCollection';
 import LocaleSelector from '@/components/layers/LocaleSelector';
 import { usePagesStore } from '@/stores/usePagesStore';
 import { useSettingsStore } from '@/stores/useSettingsStore';
-import { generateLinkHref, resolveLinkAttrs, isLinkAtCollectionBoundary, type LinkResolutionContext } from '@/lib/link-utils';
+import { generateLinkHref, resolveLinkAttrs, isLinkAtCollectionBoundary, isLinkToCurrentPage, type LinkResolutionContext } from '@/lib/link-utils';
 import { collectEditorHiddenLayerIds, type HiddenLayerInfo } from '@/lib/animation-utils';
 import AnimationInitializer from '@/components/AnimationInitializer';
 import { transformLayerIdsForInstance, resolveVariableLinks } from '@/lib/resolve-components';
@@ -467,6 +467,12 @@ const LayerItemImpl: React.FC<{
   // Subscribe to selection state from the store for reactive updates without
   // forcing the entire LayerRenderer tree to re-render when selection changes
   const isSelected = useEditorStore((state) => state.selectedLayerId === layer.id);
+  // Preview the `current:` style state in the canvas: only the selected layer
+  // re-renders when the "Current" UI state is active (the selector returns a
+  // stable `false` for every other layer, so it doesn't trigger re-renders).
+  const isCurrentStatePreview = useEditorStore(
+    (state) => state.selectedLayerId === layer.id && state.activeUIState === 'current'
+  );
   const isEditing = editingLayerId === layer.id;
   const isDragging = activeLayerId === layer.id;
   const textEditable = isTextEditable(layer);
@@ -1865,6 +1871,30 @@ const LayerItemImpl: React.FC<{
     pageCollectionSortedItemIds,
   };
 
+  // Editor-only: a link that targets the page currently being edited is marked
+  // with `aria-current` so its `current:` styles render in the canvas, mirroring
+  // the published "active page" behaviour. Uses the same resolution context as
+  // the published renderer so page, url and CMS (field) links all match.
+  const isCurrentPageLinkInEditor = isEditMode
+    && isLinkToCurrentPage(layer.variables?.link, {
+      pages,
+      folders,
+      collectionItemSlugs,
+      collectionItemId: collectionLayerItemId,
+      pageCollectionItemId,
+      collectionItemData: collectionLayerData,
+      pageCollectionItemData: pageCollectionItemData || undefined,
+      isPreview,
+      locale: currentLocale,
+      translations,
+      getAsset,
+      anchorMap,
+      resolvedAssets,
+      layerDataMap: effectiveLayerDataMap,
+      pageCollectionSortedItemIds,
+      pageId,
+    });
+
   // Render element-specific content
   const renderContent = () => {
     // Component instances in EDIT MODE: render component's layers directly
@@ -2032,6 +2062,12 @@ const LayerItemImpl: React.FC<{
       ...(enableDragDrop && !isEditing && !isLockedByOther ? { ...normalizedAttributes, ...listeners } : normalizedAttributes),
       ...(!isEditMode && { suppressHydrationWarning: true }),
     };
+
+    // Editor: mark current-page links (and preview the selected layer's
+    // `current:` state) so the "active page" styles are visible in the canvas.
+    if (isEditMode && (isCurrentPageLinkInEditor || isCurrentStatePreview)) {
+      elementProps['aria-current'] = 'page';
+    }
 
     // Apply link attributes for elements rendered as <a> (buttons with links or <a> layers)
     if (htmlTag === 'a' && layer.variables?.link) {
@@ -2682,10 +2718,17 @@ const LayerItemImpl: React.FC<{
         iconHtml = DEFAULT_ASSETS.ICON;
       }
 
+      // Derive aspect-ratio from the SVG viewBox so an icon with only one of
+      // width/height set resolves the missing axis to its true proportions
+      // instead of collapsing. Inert when both dimensions are explicitly set.
+      const iconAspectRatio = getSvgAspectRatioStyle(iconHtml);
+      const iconElementStyle = (typeof elementProps.style === 'object' && elementProps.style) || undefined;
+
       return (
         <Tag
           {...elementProps}
           data-icon="true"
+          style={iconAspectRatio ? { aspectRatio: iconAspectRatio, ...iconElementStyle } : iconElementStyle}
           dangerouslySetInnerHTML={{ __html: iconHtml }}
         />
       );

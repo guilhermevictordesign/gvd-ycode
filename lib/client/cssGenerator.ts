@@ -9,6 +9,7 @@
 
 import type { Component, Layer } from '@/types';
 import { DEFAULT_TEXT_STYLES } from '@/lib/text-format-utils';
+import { TAILWIND_CUSTOM_VARIANTS } from '@/lib/tailwind-custom-variants';
 
 /**
  * Extract all classes from layers recursively
@@ -132,8 +133,7 @@ export async function generateCSS(layers: Layer[]): Promise<string> {
   <meta charset="UTF-8">
   <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
   <style type="text/tailwindcss">
-    @custom-variant current (&[aria-current]);
-    @custom-variant disabled (&:is(:disabled, [aria-disabled]));
+    ${TAILWIND_CUSTOM_VARIANTS}
   </style>
 </head>
 <body>

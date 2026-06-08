@@ -27,6 +27,92 @@ export function buildSvgDataUrl(
   return `data:image/svg+xml,${encodeURIComponent(svg)}`;
 }
 
+/**
+ * Derive a CSS `aspect-ratio` value (e.g. `"24 / 24"`) from an inline icon SVG.
+ *
+ * Icon layers render the SVG at `width: 100%; height: 100%` of their
+ * `[data-icon]` container. When the container has only one dimension set
+ * (common after HTML import or manual edits) the other axis is `auto`, and an
+ * inline-block box that shrink-wraps a 100%-sized child collapses to 0 —
+ * making the icon invisible. Applying this aspect-ratio to the container lets
+ * the missing axis resolve from the icon's true proportions while staying
+ * inert when both width and height are explicitly set.
+ *
+ * Prefers the `viewBox`, falling back to numeric `width`/`height` attributes.
+ * Returns null when no usable ratio can be determined.
+ */
+export function getSvgAspectRatioStyle(svgContent: string | null | undefined): string | null {
+  if (!svgContent) return null;
+
+  const viewBoxMatch = svgContent.match(
+    /viewBox\s*=\s*["']\s*[\d.+-]+\s+[\d.+-]+\s+([\d.+-]+)\s+([\d.+-]+)\s*["']/i
+  );
+  if (viewBoxMatch) {
+    const width = parseFloat(viewBoxMatch[1]);
+    const height = parseFloat(viewBoxMatch[2]);
+    if (Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0) {
+      return `${width} / ${height}`;
+    }
+  }
+
+  const svgTagMatch = svgContent.match(/<svg\b([^>]*)>/i);
+  if (svgTagMatch) {
+    const attrs = svgTagMatch[1];
+    const widthAttr = attrs.match(/\bwidth\s*=\s*["']?\s*([\d.]+)/i);
+    const heightAttr = attrs.match(/\bheight\s*=\s*["']?\s*([\d.]+)/i);
+    if (widthAttr && heightAttr) {
+      const width = parseFloat(widthAttr[1]);
+      const height = parseFloat(heightAttr[1]);
+      if (Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0) {
+        return `${width} / ${height}`;
+      }
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Derive an inline icon SVG's intrinsic pixel size so a layer can adopt the
+ * icon's real dimensions (instead of inheriting whatever box the previous icon
+ * had). Prefers numeric `width`/`height` attributes, falling back to the
+ * `viewBox` extents. Returns null when no usable pixel size can be determined
+ * (e.g. percentage/`em` dimensions or a missing viewBox).
+ */
+export function getSvgIntrinsicSize(
+  svgContent: string | null | undefined
+): { width: number; height: number } | null {
+  if (!svgContent) return null;
+
+  const svgTagMatch = svgContent.match(/<svg\b([^>]*)>/i);
+  if (svgTagMatch) {
+    const attrs = svgTagMatch[1];
+    // Only accept bare numbers or explicit px — skip %, em, rem, etc.
+    const widthAttr = attrs.match(/\bwidth\s*=\s*["']?\s*([\d.]+)\s*(px)?["'\s>]/i);
+    const heightAttr = attrs.match(/\bheight\s*=\s*["']?\s*([\d.]+)\s*(px)?["'\s>]/i);
+    if (widthAttr && heightAttr) {
+      const width = Math.round(parseFloat(widthAttr[1]));
+      const height = Math.round(parseFloat(heightAttr[1]));
+      if (Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0) {
+        return { width, height };
+      }
+    }
+  }
+
+  const viewBoxMatch = svgContent.match(
+    /viewBox\s*=\s*["']\s*[\d.+-]+\s+[\d.+-]+\s+([\d.+-]+)\s+([\d.+-]+)\s*["']/i
+  );
+  if (viewBoxMatch) {
+    const width = Math.round(parseFloat(viewBoxMatch[1]));
+    const height = Math.round(parseFloat(viewBoxMatch[2]));
+    if (Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0) {
+      return { width, height };
+    }
+  }
+
+  return null;
+}
+
 import type { AssetCategory, AssetCategoryFilter, Layer, Component, ComponentVariable } from '@/types';
 import {
   ASSET_CATEGORIES,

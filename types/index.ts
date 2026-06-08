@@ -1428,6 +1428,16 @@ export interface VisibilityCondition {
   // For self source: when true, the current dynamic page item ID is injected
   // into the comparison set alongside any statically picked IDs in `value`.
   includesCurrentPageItem?: boolean;
+  // How the compare value is sourced. Defaults to 'static' (uses `value`).
+  // 'current_page' binds the compare value to the current dynamic page item:
+  //   - reference/multi_reference fields compare against the page item's own ID
+  //     (the "Current Category/Tag" pattern)
+  //   - scalar fields compare against the value of `currentPageFieldId` on the
+  //     current page item
+  valueMode?: 'static' | 'current_page';
+  // For scalar fields with valueMode 'current_page': the field on the current
+  // dynamic page item whose value is used as the compare value.
+  currentPageFieldId?: string;
   // For linking filter value to an input layer inside a Filter
   inputLayerId?: string;
   inputLayerId2?: string; // For second bound (e.g. 'is_between')

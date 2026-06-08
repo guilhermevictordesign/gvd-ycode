@@ -167,6 +167,7 @@ function renderResolved(
     components: data.components,
     locale: data.locale ?? ctx.locale ?? null,
     translations: data.translations ?? ctx.translations,
+    pageId: page.id,
   })
   return {
     page,

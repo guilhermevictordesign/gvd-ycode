@@ -704,6 +704,7 @@ export default async function PageRenderer({
         <LayerRendererPublic
           layers={childLayers}
           isPublished={page.is_published}
+          pageId={page.id}
           pageCollectionItemId={collectionItem?.id}
           pageCollectionItemData={collectionItem?.values || undefined}
           pageCollectionSortedItemIds={pageCollectionSortedItemIds}

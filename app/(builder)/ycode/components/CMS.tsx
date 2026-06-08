@@ -2267,7 +2267,7 @@ const CMS = React.memo(function CMS() {
 
       {/* Items Content */}
       <div className="flex-1 overflow-auto flex flex-col min-w-0">
-        {loadingSampleCollectionId === selectedCollectionId ? (
+        {loadingSampleCollectionId === selectedCollectionId || selectedCollectionId?.startsWith('temp-') ? (
           <div className="flex flex-col items-center justify-center gap-4 p-8 flex-1">
             <Spinner />
             <span className="text-sm text-muted-foreground">Creating collection...</span>

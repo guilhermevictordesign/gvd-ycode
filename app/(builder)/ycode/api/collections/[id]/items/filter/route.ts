@@ -29,6 +29,11 @@ interface FilterCondition {
   // For source === 'self': also include the current dynamic page item's ID
   // in the comparison set at runtime.
   includesCurrentPageItem?: boolean;
+  // 'current_page' binds the compare value to the current dynamic page item:
+  // reference fields inject the page item's ID; scalar fields use the value of
+  // `currentPageFieldId` on the page item.
+  valueMode?: 'static' | 'current_page';
+  currentPageFieldId?: string;
 }
 
 // PostgREST encodes .in() values into a URL query param.
@@ -442,6 +447,38 @@ function getSelfFilterMatches(
   return new Set(candidateIds.filter(id => compareSet.has(id)));
 }
 
+/**
+ * Resolve a `valueMode: 'current_page'` filter into a concrete static filter by
+ * binding its compare value to the current dynamic page item:
+ *   - reference fields inject the page item's ID into the compared ID set
+ *   - scalar fields read the page item's `currentPageFieldId` value
+ * Mirrors the SSR resolution in `evaluateCondition`.
+ */
+async function resolveCurrentPageFilter(
+  filter: FilterCondition,
+  isPublished: boolean,
+  pageCollectionItemId?: string,
+): Promise<FilterCondition> {
+  const isReferenceField = filter.fieldType === 'reference'
+    || filter.fieldType === 'multi_reference'
+    || ['is_one_of', 'is_not_one_of', 'contains_all_of', 'contains_exactly'].includes(filter.operator);
+  if (isReferenceField) {
+    const ids = parseItemIdList(filter.value);
+    if (pageCollectionItemId && !ids.includes(pageCollectionItemId)) {
+      ids.push(pageCollectionItemId);
+    }
+    // 'contains exactly' against a single injected page-item id can never match a real
+    // multi-reference set — the "Current X" intent is "contains the current item".
+    const operator = filter.operator === 'contains_exactly' ? 'contains_all_of' : filter.operator;
+    return { ...filter, operator, value: JSON.stringify(ids) };
+  }
+  if (filter.currentPageFieldId && pageCollectionItemId) {
+    const valueMap = await getFieldValuesForItems(filter.currentPageFieldId, isPublished, [pageCollectionItemId]);
+    return { ...filter, value: valueMap.get(pageCollectionItemId) ?? '' };
+  }
+  return { ...filter, value: '' };
+}
+
 async function getFilteredItemIds(
   collectionId: string,
   isPublished: boolean,
@@ -470,6 +507,9 @@ async function getFilteredItemIds(
         const matchingForFilter = getSelfFilterMatches(filter, [...currentIds], pageCollectionItemId);
         currentIds = new Set([...currentIds].filter(id => matchingForFilter.has(id)));
         continue;
+      }
+      if (filter.valueMode === 'current_page') {
+        filter = await resolveCurrentPageFilter(filter, isPublished, pageCollectionItemId);
       }
       if (isDateFieldType(filter.fieldType) && isDatePreset(filter.value)) {
         const resolved = resolveDateFilterValue(filter.operator, filter.value, filter.value2, timezone);

@@ -2,6 +2,7 @@
 
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useEditorStore } from '@/stores/useEditorStore';
+import { layerHasLink } from '@/lib/link-utils';
 import type { UIState, Layer } from '@/types';
 
 interface UIStateSelectorProps {
@@ -21,8 +22,10 @@ export default function UIStateSelector({ selectedLayer }: UIStateSelectorProps)
 
   const isCurrentApplicable = () => {
     if (!selectedLayer) return false;
+    // Any element with a link can become the "active page" element, plus the
+    // built-in navigation/slider-bullet types that get aria-current at runtime.
     const applicableTypes = ['link', 'a', 'navigation', 'slideBullet'];
-    return applicableTypes.includes(selectedLayer.name || '');
+    return applicableTypes.includes(selectedLayer.name || '') || layerHasLink(selectedLayer);
   };
 
   return (

@@ -251,6 +251,12 @@ export interface LinkResolutionContext {
   collectionItemSlugs?: Record<string, string>;
   collectionItemId?: string;
   pageCollectionItemId?: string;
+  /**
+   * ID of the page currently being rendered. Used to detect links that point
+   * to the current page so they can be marked with `aria-current` (drives the
+   * `current:` style state, i.e. the "active page" indicator in navigation).
+   */
+  pageId?: string;
   collectionItemData?: Record<string, string>;
   pageCollectionItemData?: Record<string, string>;
   isPreview?: boolean;
@@ -666,6 +672,124 @@ export function looksLikePhone(value: unknown): boolean {
   const trimmed = value.trim();
   const digitCount = (trimmed.match(/\d/g) || []).length;
   return /^[\d\s\-()+.]*$/.test(trimmed) && digitCount >= 7;
+}
+
+/**
+ * Resolve a page link's `collection_item_id` (keyword, ref, or literal id) to a
+ * concrete collection item id, using the same rules as `generateLinkHref`.
+ * Returns null for navigation keywords (next/previous) that never represent the
+ * "current" item.
+ */
+function resolveLinkTargetItemId(
+  collectionItemId: string | null | undefined,
+  context: LinkResolutionContext
+): string | undefined {
+  if (!collectionItemId) return undefined;
+
+  if (isCollectionItemKeyword(collectionItemId)) {
+    switch (collectionItemId) {
+      case COLLECTION_ITEM_KEYWORDS.CURRENT_PAGE:
+        return context.pageCollectionItemId;
+      case COLLECTION_ITEM_KEYWORDS.CURRENT_COLLECTION:
+        return context.collectionItemId;
+      default:
+        // next-item / previous-item are never the current page.
+        return undefined;
+    }
+  }
+
+  if (collectionItemId.startsWith(REF_PAGE_PREFIX) || collectionItemId.startsWith(REF_COLLECTION_PREFIX)) {
+    return resolveRefCollectionItemId(collectionItemId, context.pageCollectionItemData, context.collectionItemData);
+  }
+
+  return collectionItemId;
+}
+
+/**
+ * Normalise an href to a comparable path: drops origin, query, hash, the
+ * `/ycode/preview` prefix, and any trailing slash so two URLs that point at the
+ * same page compare equal regardless of formatting.
+ */
+function normalizeLinkPath(href: string): string | null {
+  let path = href.trim();
+  if (!path) return null;
+
+  // Non-navigational schemes (mailto:, tel:, etc.) are never a page match.
+  if (/^(mailto:|tel:|javascript:)/i.test(path)) return null;
+
+  // Absolute URL → keep only the pathname (origin/query/hash dropped).
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(path)) {
+    try {
+      path = new URL(path).pathname;
+    } catch {
+      return null;
+    }
+  }
+
+  path = path.split('#')[0].split('?')[0];
+  path = path.replace(/^\/ycode\/preview/, '');
+  if (path.length > 1) path = path.replace(/\/+$/, '');
+  if (path === '') path = '/';
+  return path;
+}
+
+/** Build the normalised path of the page currently being rendered. */
+function getCurrentPagePath(context: LinkResolutionContext): string | null {
+  if (!context.pageId) return null;
+  const selfLink = createPageLinkSettings(context.pageId, context.pageCollectionItemId ?? null);
+  const href = generateLinkHref(selfLink, context);
+  return href ? normalizeLinkPath(href) : null;
+}
+
+/**
+ * Detects whether a link points to the page currently being rendered. Used to
+ * mark navigation links with `aria-current="page"`, which activates the
+ * `current:` style state (the legacy "Active" page indicator).
+ *
+ * - `page` links match by target page id (and, for dynamic collection pages, the
+ *   resolved collection item id — covering lists where each item links to its
+ *   own detail page).
+ * - `url` / `field` (CMS) links match by comparing their resolved path to the
+ *   current page's path.
+ *
+ * `resolvedHref` can be supplied by callers that already resolved the link to
+ * avoid resolving it twice.
+ */
+export function isLinkToCurrentPage(
+  linkSettings: LinkSettings | undefined | null,
+  context: LinkResolutionContext,
+  resolvedHref?: string | null
+): boolean {
+  if (!linkSettings || !context.pageId) return false;
+
+  // Page links: compare by page identity (id + collection item) — works without
+  // resolved slugs, so it behaves identically in the editor and on the server.
+  if (linkSettings.type === 'page') {
+    const targetPageId = linkSettings.page?.id;
+    if (!targetPageId || targetPageId !== context.pageId) return false;
+
+    const page = context.pages?.find(p => p.id === targetPageId);
+    const linkItemId = linkSettings.page?.collection_item_id;
+
+    // Plain page link (no specific collection item) targeting the current page id
+    // is "current". Covers static pages and generic links to dynamic pages, and
+    // stays correct even when `pages`/`pageCollectionItemId` are unavailable.
+    if (!page?.is_dynamic || !linkItemId) return true;
+
+    // Item-specific dynamic link: require the resolved item to be the current one.
+    if (!context.pageCollectionItemId) return false;
+    const targetItemId = resolveLinkTargetItemId(linkItemId, context);
+    return !!targetItemId && targetItemId === context.pageCollectionItemId;
+  }
+
+  // Other link types (url, field, …): compare resolved paths.
+  const href = resolvedHref ?? generateLinkHref(linkSettings, context);
+  if (!href) return false;
+  const linkPath = normalizeLinkPath(href);
+  if (!linkPath) return false;
+
+  const currentPath = getCurrentPagePath(context);
+  return !!currentPath && linkPath === currentPath;
 }
 
 export interface ResolvedLinkAttrs {

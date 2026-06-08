@@ -71,22 +71,30 @@ export async function createSampleCollection(
     is_published: false,
   });
 
-  // 2. Create all fields with sequential ordering: start built-ins, custom, end built-ins
+  // 2. Create all fields with sequential ordering: start built-ins, custom, end built-ins.
+  // Built-in fields persist their `key` (which locks them from editing/deletion), while
+  // custom fields persist `key: null` so they remain editable like user-created fields.
+  // The sample key is retained separately (`lookupKey`) only to map sample item values.
   const customFieldsReordered = sample.customFields.map((f, i) => ({
     ...f,
     order: BUILT_IN_FIELDS_START.length + i,
+    lookupKey: f.key,
+    persistKey: null as string | null,
   }));
+  const startFields = BUILT_IN_FIELDS_START.map(f => ({ ...f, lookupKey: f.key, persistKey: f.key }));
   const endFieldsReordered = BUILT_IN_FIELDS_END.map((f, i) => ({
     ...f,
     order: BUILT_IN_FIELDS_START.length + sample.customFields.length + i,
+    lookupKey: f.key,
+    persistKey: f.key,
   }));
-  const allFieldDefs = [...BUILT_IN_FIELDS_START, ...customFieldsReordered, ...endFieldsReordered];
+  const allFieldDefs = [...startFields, ...customFieldsReordered, ...endFieldsReordered];
 
   const fields = await Promise.all(
     allFieldDefs.map(field =>
       createField({
         name: field.name,
-        key: field.key,
+        key: field.persistKey,
         type: field.type,
         fillable: field.fillable,
         hidden: field.hidden,
@@ -98,13 +106,13 @@ export async function createSampleCollection(
     )
   );
 
-  // 3. Build field key-to-id lookup
+  // 3. Build field key-to-id lookup using the sample key (fields share the order of allFieldDefs)
   const fieldKeyToId: Record<string, string> = {};
-  for (const field of fields) {
-    if (field.key) {
-      fieldKeyToId[field.key] = field.id;
+  allFieldDefs.forEach((def, i) => {
+    if (def.lookupKey) {
+      fieldKeyToId[def.lookupKey] = fields[i].id;
     }
-  }
+  });
 
   // 4. Create assets for image fields in parallel
   const { assetIdMap, assets } = await createImageAssets(sample.items, fieldKeyToId);

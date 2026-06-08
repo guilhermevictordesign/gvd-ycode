@@ -12,7 +12,8 @@ import { Label } from '@/components/ui/label';
 import SettingsPanel from './SettingsPanel';
 import type { Layer, IconSettingsValue } from '@/types';
 import { createAssetVariable, isAssetVariable, getAssetId, isStaticTextVariable, getStaticTextContent } from '@/lib/variable-utils';
-import { DEFAULT_ASSETS, isAssetOfType, ASSET_CATEGORIES } from '@/lib/asset-utils';
+import { DEFAULT_ASSETS, getSvgIntrinsicSize, isAssetOfType, ASSET_CATEGORIES } from '@/lib/asset-utils';
+import { useDesignSync } from '@/hooks/use-design-sync';
 import { Button } from '@/components/ui/button';
 import { useEditorStore } from '@/stores/useEditorStore';
 import { useAssetsStore } from '@/stores/useAssetsStore';
@@ -61,6 +62,15 @@ export default function IconSettings(props: IconSettingsProps) {
   const standaloneOnChange = isStandaloneMode ? props.onChange : undefined;
   const [isOpen, setIsOpen] = useState(true);
 
+  // Pinned to desktop/neutral so adopting an icon's size updates the base
+  // dimensions (matching how the default icon element sets w-/h- at base).
+  const { updateDesignProperties } = useDesignSync({
+    layer,
+    onLayerUpdate: onLayerUpdate ?? (() => {}),
+    activeBreakpoint: 'desktop',
+    activeUIState: 'neutral',
+  });
+
   const openFileManager = useEditorStore((state) => state.openFileManager);
   const editingComponentId = useEditorStore((state) => state.editingComponentId);
   const getAsset = useAssetsStore((state) => state.getAsset);
@@ -98,7 +108,20 @@ export default function IconSettings(props: IconSettingsProps) {
         icon: { src: assetVariable },
       },
     });
-  }, [isStandaloneMode, standaloneOnChange, layer, onLayerUpdate]);
+
+    // Adopt the selected icon's intrinsic size so it reflects the new icon's
+    // real dimensions rather than inheriting the previous icon's box (e.g. the
+    // default 24×24 element size). Sends design + classes in a separate update
+    // that doesn't touch the variables set above.
+    const selectedAsset = getAsset(assetId);
+    const intrinsicSize = getSvgIntrinsicSize(selectedAsset?.content);
+    if (intrinsicSize) {
+      updateDesignProperties([
+        { category: 'sizing', property: 'width', value: `${intrinsicSize.width}px` },
+        { category: 'sizing', property: 'height', value: `${intrinsicSize.height}px` },
+      ]);
+    }
+  }, [isStandaloneMode, standaloneOnChange, layer, onLayerUpdate, getAsset, updateDesignProperties]);
 
   const handleBrowseAsset = useCallback(() => {
     const currentAssetId = (() => {

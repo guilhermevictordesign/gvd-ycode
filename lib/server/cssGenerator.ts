@@ -15,6 +15,7 @@ import { join, dirname } from 'node:path';
 import { compile } from 'tailwindcss';
 import type { Layer, Component } from '@/types';
 import { DEFAULT_TEXT_STYLES } from '@/lib/text-format-utils';
+import { TAILWIND_CUSTOM_VARIANTS } from '@/lib/tailwind-custom-variants';
 import { getAllDraftLayers, getDraftLayers } from '@/lib/repositories/pageLayersRepository';
 import { getAllComponents } from '@/lib/repositories/componentRepository';
 import { setSetting } from '@/lib/repositories/settingsRepository';
@@ -84,7 +85,11 @@ async function getCompiler() {
   if (compilerCache) return compilerCache;
 
   const twPath = join(process.cwd(), 'node_modules/tailwindcss/index.css');
-  const input = await readFile(twPath, 'utf-8');
+  const baseInput = await readFile(twPath, 'utf-8');
+  // Register custom variants (current:, disabled:) so user classes like
+  // `current:opacity-100` on slider bullets compile — mirrors the client
+  // generator and app/globals.css.
+  const input = `${baseInput}\n${TAILWIND_CUSTOM_VARIANTS}\n`;
 
   compilerCache = await compile(input, {
     base: process.cwd(),

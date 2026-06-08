@@ -37,6 +37,8 @@ export interface PageRenderContext {
   components: PageData['components']
   locale: PageData['locale'] | null
   translations: PageData['translations'] | undefined
+  /** ID of the page being rendered — drives `aria-current` on active-page links. */
+  pageId?: string
 }
 
 /**
@@ -77,7 +79,7 @@ export function renderPageBody(
         ctx.components,
         undefined, // ancestorComponentIds
         false, // isSlideChild
-        { isStaticExport: true }, // pageLinkContext — opt out of iframe htmlEmbed wrapping
+        { isStaticExport: true, currentPageId: ctx.pageId }, // pageLinkContext — opt out of iframe htmlEmbed wrapping
       ),
     )
     .filter(Boolean)

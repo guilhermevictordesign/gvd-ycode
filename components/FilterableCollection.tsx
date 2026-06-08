@@ -199,6 +199,8 @@ export default function FilterableCollection({
       fieldType?: string;
       source?: 'collection_field' | 'self';
       includesCurrentPageItem?: boolean;
+      valueMode?: 'static' | 'current_page';
+      currentPageFieldId?: string;
     };
     const operatorsWithoutValue = new Set([
       'is_present',
@@ -232,6 +234,21 @@ export default function FilterableCollection({
         }
 
         if (!condition.fieldId) continue;
+
+        // Current-page conditions are forwarded verbatim; the server resolves the
+        // compare value from the current dynamic page item (its own ID for
+        // reference fields, or `currentPageFieldId`'s value for scalar fields).
+        if (condition.valueMode === 'current_page') {
+          activeInGroup.push({
+            fieldId: condition.fieldId,
+            operator: condition.operator,
+            value: condition.value || '',
+            fieldType: condition.fieldType,
+            valueMode: 'current_page',
+            currentPageFieldId: condition.currentPageFieldId,
+          });
+          continue;
+        }
 
         let value = condition.inputLayerId ? '' : (condition.value || '');
         let value2 = condition.inputLayerId2 ? '' : condition.value2;
@@ -581,6 +598,8 @@ export default function FilterableCollection({
       fieldType?: string;
       source?: 'collection_field' | 'self';
       includesCurrentPageItem?: boolean;
+      valueMode?: 'static' | 'current_page';
+      currentPageFieldId?: string;
     }>>,
     offset: number,
     append: boolean,

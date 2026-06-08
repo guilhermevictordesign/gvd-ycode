@@ -31,6 +31,7 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
   DropdownMenuCheckboxItem,
 } from '@/components/ui/dropdown-menu';
@@ -64,6 +65,37 @@ interface CollectionFiltersSettingsProps {
   collectionId: string;
 }
 
+// Groups scalar field types that are mutually comparable, so a "current page
+// field" binding only offers fields whose value format matches the condition's
+// field (e.g. a text field can bind to another text-like field, not a date).
+const SCALAR_FIELD_GROUP: Partial<Record<CollectionFieldType, string>> = {
+  number: 'number',
+  count: 'number',
+  date: 'date',
+  date_only: 'date',
+  boolean: 'boolean',
+  color: 'text',
+  text: 'text',
+  rich_text: 'text',
+  email: 'text',
+  phone: 'text',
+};
+
+const getScalarFieldGroup = (type?: CollectionFieldType): string | undefined =>
+  type ? SCALAR_FIELD_GROUP[type] : undefined;
+
+/**
+ * Best-effort singularization of a collection name for "Current X" labels
+ * (e.g. "Tags" -> "Tag", "Categories" -> "Category"). Handles the common
+ * English plural endings; leaves anything it doesn't recognize untouched.
+ */
+const singularizeCollectionName = (name: string): string => {
+  if (/ies$/i.test(name)) return name.replace(/ies$/i, 'y');
+  if (/(sses|shes|ches|xes|zes)$/i.test(name)) return name.replace(/es$/i, '');
+  if (/s$/i.test(name) && !/ss$/i.test(name)) return name.replace(/s$/i, '');
+  return name;
+};
+
 /**
  * Reference Items Selector Component
  * Multi-select dropdown for selecting collection items for is_one_of/is_not_one_of operators
@@ -73,12 +105,22 @@ function ReferenceItemsSelector({
   value,
   onChange,
   currentPageItem,
+  currentPageBinding,
 }: {
   collectionId: string;
   value: string; // JSON array of item IDs
   onChange: (value: string) => void;
   /** When provided, renders a "Current page item" entry above the items list. */
   currentPageItem?: {
+    checked: boolean;
+    onChange: (checked: boolean) => void;
+  };
+  /**
+   * When provided, renders a "Current {collection}" entry that binds the value
+   * to the current dynamic page item (the "Current Category/Tag" pattern).
+   */
+  currentPageBinding?: {
+    label: string;
     checked: boolean;
     onChange: (checked: boolean) => void;
   };
@@ -143,10 +185,12 @@ function ReferenceItemsSelector({
 
   // Get display text for closed state
   const getDisplayText = () => {
-    const totalCount = selectedIds.length + (currentPageItem?.checked ? 1 : 0);
+    const bindingCount = currentPageBinding?.checked ? 1 : 0;
+    const totalCount = selectedIds.length + (currentPageItem?.checked ? 1 : 0) + bindingCount;
     if (totalCount === 0) return 'Select items...';
 
     const labels: string[] = [];
+    if (currentPageBinding?.checked) labels.push(currentPageBinding.label);
     if (currentPageItem?.checked) labels.push('Current page item');
     for (const id of selectedIds) {
       const item = items.find(i => i.id === id);
@@ -174,6 +218,20 @@ function ReferenceItemsSelector({
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent className="w-(--radix-dropdown-menu-trigger-width) min-w-50 max-h-60 overflow-y-auto" align="start">
+        {currentPageBinding && (
+          <DropdownMenuCheckboxItem
+            checked={currentPageBinding.checked}
+            onCheckedChange={(checked) => currentPageBinding.onChange(checked === true)}
+            onSelect={(e) => e.preventDefault()}
+          >
+            {!currentPageBinding.checked && (
+              <span className="pointer-events-none absolute left-2 flex size-3.5 items-center justify-center">
+                <Icon name="database" className="size-2.5 opacity-60" />
+              </span>
+            )}
+            {currentPageBinding.label}
+          </DropdownMenuCheckboxItem>
+        )}
         {currentPageItem && (
           <DropdownMenuCheckboxItem
             checked={currentPageItem.checked}
@@ -182,6 +240,9 @@ function ReferenceItemsSelector({
           >
             Current page item
           </DropdownMenuCheckboxItem>
+        )}
+        {(currentPageBinding || currentPageItem) && items.length > 0 && (
+          <DropdownMenuSeparator />
         )}
         {loading ? (
           <div className="flex items-center justify-center py-4">
@@ -219,13 +280,15 @@ export default function CollectionFiltersSettings({
   const [isOpen, setIsOpen] = useState(true);
 
   // Get fields from the collections store
-  const { fields: allFields, loadFields } = useCollectionsStore();
+  const { collections, fields: allFields, loadFields } = useCollectionsStore();
   const fields = allFields[collectionId] || [];
 
   // Element picker and layer access for filter input linking
   const startElementPicker = useEditorStore((state) => state.startElementPicker);
   const stopElementPicker = useEditorStore((state) => state.stopElementPicker);
   const currentPageId = useEditorStore((state) => state.currentPageId);
+  const editingComponentId = useEditorStore((state) => state.editingComponentId);
+  const pages = usePagesStore((state) => state.pages);
   const draftsByPageId = usePagesStore((state) => state.draftsByPageId);
   const allLayers = useMemo(() => {
     if (!currentPageId) return [];
@@ -233,12 +296,42 @@ export default function CollectionFiltersSettings({
     return draft ? draft.layers : [];
   }, [currentPageId, draftsByPageId]);
 
+  // Dynamic page context: when editing a dynamic CMS page (not a component), the
+  // page is bound to a collection whose current item provides "Current
+  // {collection}" filter values (the "Current Category/Tag" pattern).
+  const currentPage = useMemo(
+    () => pages.find((page) => page.id === currentPageId) || null,
+    [pages, currentPageId]
+  );
+  const isDynamicPage = !editingComponentId && !!currentPage?.is_dynamic;
+  const pageCollectionId = isDynamicPage ? currentPage?.settings?.cms?.collection_id : undefined;
+  const pageCollectionName = useMemo(
+    () => collections.find((c) => c.id === pageCollectionId)?.name || 'page',
+    [collections, pageCollectionId]
+  );
+  // Singular form for "Current X" labels (e.g. "Tags" page -> "Current Tag").
+  const pageCollectionNameSingular = useMemo(
+    () => singularizeCollectionName(pageCollectionName),
+    [pageCollectionName]
+  );
+  const pageCollectionFields = useMemo(
+    () => (pageCollectionId ? allFields[pageCollectionId] || [] : []),
+    [pageCollectionId, allFields]
+  );
+
   // Load fields if not already loaded
   useEffect(() => {
     if (collectionId && fields.length === 0) {
       loadFields(collectionId);
     }
   }, [collectionId, fields.length, loadFields]);
+
+  // Load the dynamic page collection's fields (for current-page field binding)
+  useEffect(() => {
+    if (pageCollectionId && (allFields[pageCollectionId]?.length ?? 0) === 0) {
+      loadFields(pageCollectionId);
+    }
+  }, [pageCollectionId, allFields, loadFields]);
 
   // Get current collection variable
   const collectionVariable = layer ? getCollectionVariable(layer) : null;
@@ -427,11 +520,16 @@ export default function CollectionFiltersSettings({
     const value = operatorRequiresValue(operator)
       ? (needsSecondValue && isDatePreset(existing?.value) ? '' : existing?.value)
       : undefined;
+    // Current-page binding is only supported for single-bound operators; drop it
+    // when switching to a two-bound operator (e.g. date `is between`).
+    const dropCurrentPage = needsSecondValue && existing?.valueMode === 'current_page';
     patchCondition(groupId, conditionId, {
       operator,
       value,
       value2: needsSecondValue ? existing?.value2 : undefined,
       inputLayerId2: needsSecondValue ? existing?.inputLayerId2 : undefined,
+      valueMode: dropCurrentPage ? 'static' : existing?.valueMode,
+      currentPageFieldId: dropCurrentPage ? undefined : existing?.currentPageFieldId,
     });
   };
 
@@ -467,7 +565,12 @@ export default function CollectionFiltersSettings({
     startElementPicker(
       (layerId: string) => {
         const resolvedId = resolveFilterInputId(layerId, allLayers);
-        patchCondition(groupId, conditionId, { inputLayerId: resolvedId, value: undefined });
+        patchCondition(groupId, conditionId, {
+          inputLayerId: resolvedId,
+          value: undefined,
+          valueMode: 'static',
+          currentPageFieldId: undefined,
+        });
         stopElementPicker();
       },
       (layerId: string) => isInputInsideFilter(layerId, allLayers),
@@ -612,10 +715,27 @@ export default function CollectionFiltersSettings({
       return renderSelfCondition(condition, group, index);
     }
     const fieldType = condition.fieldType || getFieldType(condition.fieldId || '');
-    const operators = getOperatorsForFieldType(fieldType);
     const icon = getFieldIcon(fieldType);
     const displayName = getFieldName(condition.fieldId || '');
     const referenceCollectionId = getReferenceCollectionId(condition);
+    const isCurrentPageMode = condition.valueMode === 'current_page';
+    // 'contains exactly' compares against a single current-page id, which can never
+    // match a real multi-reference set, so hide it while bound to the current item.
+    const operators = isCurrentPageMode
+      ? getOperatorsForFieldType(fieldType).filter((op) => op.value !== 'contains_exactly')
+      : getOperatorsForFieldType(fieldType);
+    // A reference field can bind to "Current {collection}" only when its target
+    // collection matches the dynamic page's collection (so the page item is a
+    // valid member of the compared set).
+    const canBindReferenceToCurrentPage = isDynamicPage
+      && !!pageCollectionId
+      && referenceCollectionId === pageCollectionId;
+    // Scalar fields can bind to a value-compatible field on the current page item.
+    const compatiblePageFields = isDynamicPage
+      ? pageCollectionFields.filter(
+        (f) => !!getScalarFieldGroup(f.type) && getScalarFieldGroup(f.type) === getScalarFieldGroup(fieldType)
+      )
+      : [];
     // Date fields use a dropdown for value mode; the "Filter form input" option
     // is the only place that reveals the link-to-input target icon. Falls back
     // to a linked input for conditions saved before `dateInput` existed.
@@ -724,6 +844,18 @@ export default function CollectionFiltersSettings({
                       collectionId={referenceCollectionId}
                       value={condition.value || '[]'}
                       onChange={(value) => handleValueChange(group.id, condition.id, value)}
+                      currentPageBinding={canBindReferenceToCurrentPage ? {
+                        label: `Current ${pageCollectionNameSingular}`,
+                        checked: isCurrentPageMode,
+                        onChange: (checked) => patchCondition(group.id, condition.id, {
+                          valueMode: checked ? 'current_page' : 'static',
+                          // 'contains exactly' against a single current-page id can never
+                          // match — the intent is "contains the current item".
+                          ...(checked && condition.operator === 'contains_exactly'
+                            ? { operator: 'contains_all_of' as VisibilityOperator }
+                            : {}),
+                        }),
+                      } : undefined}
                     />
                   </div>
                   <Tooltip>
@@ -766,6 +898,42 @@ export default function CollectionFiltersSettings({
                       <TooltipContent>Unlink filter input</TooltipContent>
                     </Tooltip>
                   </div>
+                </div>
+              ) : isCurrentPageMode ? (
+                <div className="flex items-center gap-1">
+                  <div className="flex-1">
+                    <Select
+                      value={condition.currentPageFieldId || ''}
+                      onValueChange={(v) => patchCondition(group.id, condition.id, { currentPageFieldId: v })}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder={`Current ${pageCollectionNameSingular} field...`} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectGroup>
+                          {compatiblePageFields.map((f) => (
+                            <SelectItem key={f.id} value={f.id}>
+                              <span className="flex items-center gap-2">
+                                <Icon name={getFieldIcon(f.type)} className="size-3 opacity-60" />
+                                {f.name}
+                              </span>
+                            </SelectItem>
+                          ))}
+                        </SelectGroup>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="secondary"
+                        onClick={() => patchCondition(group.id, condition.id, { valueMode: 'static', currentPageFieldId: undefined })}
+                      >
+                        <Icon name="x" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>Use static value</TooltipContent>
+                  </Tooltip>
                 </div>
               ) : (
                 <div className="flex items-center gap-1">
@@ -854,6 +1022,22 @@ export default function CollectionFiltersSettings({
                         </Button>
                       </TooltipTrigger>
                       <TooltipContent>Link to filter input</TooltipContent>
+                    </Tooltip>
+                  )}
+                  {!isDateFieldType(fieldType) && !operatorRequiresSecondValue(condition.operator) && compatiblePageFields.length > 0 && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          variant="secondary"
+                          onClick={() => patchCondition(group.id, condition.id, {
+                            valueMode: 'current_page',
+                            currentPageFieldId: compatiblePageFields[0]?.id,
+                          })}
+                        >
+                          <Icon name="database" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>Use current {pageCollectionNameSingular} field</TooltipContent>
                     </Tooltip>
                   )}
                 </div>
