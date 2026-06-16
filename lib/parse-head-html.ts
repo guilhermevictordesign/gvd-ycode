@@ -1,8 +1,14 @@
 import React from 'react';
 
-const HTML_TO_REACT_ATTRS: Record<string, string> = {
+/**
+ * Maps lowercase HTML attribute names to their React/JSX camelCase equivalents.
+ * Shared by head-HTML parsing and the layer renderers so imported markup never
+ * leaks invalid DOM props (e.g. `fetchpriority`) onto React elements.
+ */
+export const HTML_TO_REACT_ATTRS: Record<string, string> = {
   'class': 'className',
   'for': 'htmlFor',
+  'autofocus': 'autoFocus',
   'crossorigin': 'crossOrigin',
   'charset': 'charSet',
   'http-equiv': 'httpEquiv',

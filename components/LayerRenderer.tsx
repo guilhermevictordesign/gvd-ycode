@@ -12,6 +12,7 @@ import type { UseLiveLayerUpdatesReturn } from '@/hooks/use-live-layer-updates';
 import type { UseLiveComponentUpdatesReturn } from '@/hooks/use-live-component-updates';
 import { getLayerHtmlTag, getClassesString, getText, resolveFieldValue, isTextEditable, isTextContentLayer, isRichTextLayer, getCollectionVariable, evaluateVisibility, findAncestorByName, filterDisabledSliderLayers, getLayerCmsFieldBinding, findLayerById } from '@/lib/layer-utils';
 import { getMapIframeProps, DEFAULT_MAP_SETTINGS, resolveMarkerColor } from '@/lib/map-utils';
+import { HTML_TO_REACT_ATTRS } from '@/lib/parse-head-html';
 import { SWIPER_CLASS_MAP, SWIPER_DATA_ATTR_MAP } from '@/lib/slider-constants';
 import { useCanvasSlider } from '@/hooks/use-canvas-slider';
 import { resolveFieldFromSources } from '@/lib/cms-variables-utils';
@@ -1967,13 +1968,6 @@ const LayerItemImpl: React.FC<{
     const Tag = htmlTag as any;
     const { style: attrStyle, ...otherAttributes } = effectiveLayer.attributes || {};
 
-    // Map HTML attributes to React JSX equivalents
-    const htmlToJsxAttrMap: Record<string, string> = {
-      'for': 'htmlFor',
-      'class': 'className',
-      'autofocus': 'autoFocus',
-    };
-
     // Convert string boolean values to actual booleans and map HTML attrs to JSX
     const normalizedAttributes = Object.fromEntries(
       Object.entries(otherAttributes)
@@ -1984,7 +1978,7 @@ const LayerItemImpl: React.FC<{
         })
         .map(([key, value]) => {
           // Map HTML attribute names to JSX equivalents
-          const jsxKey = htmlToJsxAttrMap[key] || key;
+          const jsxKey = HTML_TO_REACT_ATTRS[key.toLowerCase()] || key;
 
           // If value is already a boolean, keep it
           if (typeof value === 'boolean') {
@@ -2216,10 +2210,10 @@ const LayerItemImpl: React.FC<{
       elementProps.id = layer.attributes.id;
     }
 
-    // Apply custom attributes from settings
+    // Apply custom attributes from settings (map HTML attr names to JSX equivalents)
     if (layer.settings?.customAttributes) {
       Object.entries(layer.settings.customAttributes).forEach(([name, value]) => {
-        elementProps[name] = value;
+        elementProps[HTML_TO_REACT_ATTRS[name.toLowerCase()] || name] = value;
       });
     }
 
@@ -2889,10 +2883,10 @@ const LayerItemImpl: React.FC<{
             iframeProps.id = layer.attributes.id;
           }
 
-          // Apply custom attributes from settings
+          // Apply custom attributes from settings (map HTML attr names to JSX equivalents)
           if (layer.settings?.customAttributes) {
             Object.entries(layer.settings.customAttributes).forEach(([name, value]) => {
-              iframeProps[name] = value;
+              iframeProps[HTML_TO_REACT_ATTRS[name.toLowerCase()] || name] = value;
             });
           }
 
