@@ -26,6 +26,7 @@ interface RevertResult {
     fonts: number;
     locales: number;
     translations: number;
+    globalVariables: number;
     css: boolean;
   };
   cleaned: {
@@ -43,6 +44,7 @@ interface RevertResult {
     fonts: number;
     locales: number;
     translations: number;
+    globalVariables: number;
   };
   stats: PublishStats;
 }
@@ -68,6 +70,7 @@ function createEmptyStats(): PublishStats {
       assets: emptyTableStats(),
       locales: emptyTableStats(),
       translations: emptyTableStats(),
+      global_variables: emptyTableStats(),
       css: emptyTableStats(),
     },
   };
@@ -100,13 +103,13 @@ export async function POST(_request: NextRequest) {
         folders: 0, pages: 0, pageLayers: 0,
         collections: 0, collectionFields: 0, collectionItems: 0, collectionItemValues: 0,
         components: 0, layerStyles: 0, assetFolders: 0, assets: 0, fonts: 0,
-        locales: 0, translations: 0, css: false,
+        locales: 0, translations: 0, globalVariables: 0, css: false,
       },
       cleaned: {
         folders: 0, pages: 0, pageLayers: 0,
         collections: 0, collectionFields: 0, collectionItems: 0, collectionItemValues: 0,
         components: 0, layerStyles: 0, assetFolders: 0, assets: 0, fonts: 0,
-        locales: 0, translations: 0,
+        locales: 0, translations: 0, globalVariables: 0,
       },
       stats,
     };
@@ -287,7 +290,21 @@ export async function POST(_request: NextRequest) {
       stats.tables.translations.deleted = result.cleaned.translations;
     }
 
-    // 15. CSS (uses settings, not is_published rows)
+    // 15. Global variables
+    {
+      const stepStart = performance.now();
+      try {
+        result.changes.globalVariables = await syncTableRows('global_variables', direction);
+        result.cleaned.globalVariables = (await cleanupOrphanedRows('global_variables', direction)).deleted;
+      } catch {
+        // Non-fatal
+      }
+      stats.tables.global_variables.durationMs = Math.round(performance.now() - stepStart);
+      stats.tables.global_variables.added = result.changes.globalVariables;
+      stats.tables.global_variables.deleted = result.cleaned.globalVariables;
+    }
+
+    // 16. CSS (uses settings, not is_published rows)
     {
       const stepStart = performance.now();
       try {

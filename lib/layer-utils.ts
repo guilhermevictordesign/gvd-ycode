@@ -1468,7 +1468,8 @@ export function resolveFieldValue(
   fieldVariable: FieldVariable,
   collectionItemData?: Record<string, string>,
   pageCollectionItemData?: Record<string, string> | null,
-  layerDataMap?: Record<string, Record<string, string>>
+  layerDataMap?: Record<string, Record<string, string>>,
+  globalsData?: Record<string, string>
 ): string | undefined {
   const { field_id, source, collection_layer_id, relationships = [] } = fieldVariable.data;
   if (!field_id) {
@@ -1487,7 +1488,8 @@ export function resolveFieldValue(
     collectionItemData,
     pageCollectionItemData,
     collection_layer_id,
-    layerDataMap
+    layerDataMap,
+    globalsData
   );
 }
 

@@ -63,7 +63,7 @@ interface ConditionalVisibilitySettingsProps {
   layer: Layer | null;
   onLayerUpdate: (layerId: string, updates: Partial<Layer>) => void;
   /** Field groups with labels and sources for conditional visibility */
-  fieldGroups?: { fields: CollectionField[]; label?: string; source?: 'page' | 'collection' }[];
+  fieldGroups?: { fields: CollectionField[]; label?: string; source?: 'page' | 'collection' | 'global' }[];
 }
 
 /**

@@ -22,7 +22,7 @@ import { isValidLinkSettings } from '@/lib/link-utils';
 import { DEFAULT_ASSETS, ASSET_CATEGORIES, isAssetOfType } from '@/lib/asset-utils';
 import { parseMultiAssetFieldValue, buildAssetVirtualValues } from '@/lib/multi-asset-utils';
 import { parseMultiReferenceValue, resolveReferenceFieldsSync } from '@/lib/collection-utils';
-import { MULTI_ASSET_COLLECTION_ID } from '@/lib/collection-field-utils';
+import { MULTI_ASSET_COLLECTION_ID, buildGlobalsMetaMap, buildGlobalsValueMap, mergeGlobalsIntoFieldData } from '@/lib/collection-field-utils';
 import { buildImageSizes, generateImageSrcset, getOptimizedImageUrl, getSvgAspectRatioStyle, parseImageDimension } from '@/lib/asset-utils';
 import { useEditorStore } from '@/stores/useEditorStore';
 import { toast } from 'sonner';
@@ -38,6 +38,7 @@ import { useFilterStore } from '@/stores/useFilterStore';
 import { useCollectionsStore } from '@/stores/useCollectionsStore';
 import { useAssetsStore } from '@/stores/useAssetsStore';
 import { useColorVariablesStore } from '@/stores/useColorVariablesStore';
+import { useGlobalsStore } from '@/stores/useGlobalsStore';
 import { ShimmerSkeleton } from '@/components/ui/shimmer-skeleton';
 import { combineBgValues, mergeStaticBgVars } from '@/lib/tailwind-class-mapper';
 import { clsx } from 'clsx';
@@ -491,7 +492,24 @@ const LayerItemImpl: React.FC<{
   // Collection layer data (from repeaters/loops) - separate from page collection data
   // Use layer's pre-resolved values if present (from SSR), otherwise use prop from parent
   const collectionLayerItemId = layer._collectionItemId || collectionItemId;
-  const collectionLayerData = layer._collectionItemValues || collectionItemData;
+  // Site-wide global variables, keyed by id, so global-source bindings resolve
+  // anywhere regardless of collection/page context. Merged into the collection
+  // data map every resolve call already receives (global ids are unique UUIDs,
+  // so they never collide with collection field ids).
+  const globalVariables = useGlobalsStore((state) => state.globals);
+  const globalsData = useMemo(
+    () => buildGlobalsValueMap(globalVariables),
+    [globalVariables]
+  );
+  const globalsMeta = useMemo(
+    () => buildGlobalsMetaMap(globalVariables),
+    [globalVariables]
+  );
+  const baseCollectionLayerData = layer._collectionItemValues || collectionItemData;
+  const collectionLayerData = useMemo(
+    () => mergeGlobalsIntoFieldData(baseCollectionLayerData, globalsData),
+    [baseCollectionLayerData, globalsData]
+  );
   // Layer-specific data map for resolving fields with collection_layer_id
   // Merge SSR-embedded map with prop from parent (SSR data takes precedence)
   const effectiveLayerDataMap = React.useMemo(() => ({
@@ -1083,7 +1101,7 @@ const LayerItemImpl: React.FC<{
           const variable = isSimpleTextLayer
             ? { ...textVariable, data: { ...textVariable.data, content: flattenTiptapParagraphs(textVariable.data.content) } }
             : textVariable;
-          return renderRichText(variable as any, collectionLayerData, pageCollectionItemData || undefined, layer.textStyles, useSpanForParagraphs, isEditMode, linkContext, timezone, effectiveLayerDataMap, allComponents, renderComponentBlock, effectiveAncestorIds, isSimpleTextLayer);
+          return renderRichText(variable as any, collectionLayerData, pageCollectionItemData || undefined, layer.textStyles, useSpanForParagraphs, isEditMode, linkContext, timezone, effectiveLayerDataMap, allComponents, renderComponentBlock, effectiveAncestorIds, isSimpleTextLayer, globalsMeta);
         }
         if (textVariable.type === 'dynamic_text') {
           return (textVariable as any).data.content;
@@ -1095,7 +1113,7 @@ const LayerItemImpl: React.FC<{
       if (valueToRender !== undefined) {
         // Value is typed as ComponentVariableValue - check if it's a text variable (has 'type' property)
         if ('type' in valueToRender && valueToRender.type === 'dynamic_rich_text') {
-          return renderRichText(valueToRender as any, collectionLayerData, pageCollectionItemData || undefined, layer.textStyles, useSpanForParagraphs, isEditMode, linkContext, timezone, effectiveLayerDataMap, allComponents, renderComponentBlock, effectiveAncestorIds, isSimpleTextLayer);
+          return renderRichText(valueToRender as any, collectionLayerData, pageCollectionItemData || undefined, layer.textStyles, useSpanForParagraphs, isEditMode, linkContext, timezone, effectiveLayerDataMap, allComponents, renderComponentBlock, effectiveAncestorIds, isSimpleTextLayer, globalsMeta);
         }
         if ('type' in valueToRender && valueToRender.type === 'dynamic_text') {
           return (valueToRender as any).data.content;
@@ -1112,7 +1130,7 @@ const LayerItemImpl: React.FC<{
       const variable = isSimpleTextLayer
         ? { ...textVariable, data: { ...textVariable.data, content: flattenTiptapParagraphs(textVariable.data.content) } }
         : textVariable;
-      return renderRichText(variable as any, collectionLayerData, pageCollectionItemData || undefined, layer.textStyles, useSpanForParagraphs, isEditMode, linkContext, timezone, effectiveLayerDataMap, allComponents, renderComponentBlock, effectiveAncestorIds, isSimpleTextLayer);
+      return renderRichText(variable as any, collectionLayerData, pageCollectionItemData || undefined, layer.textStyles, useSpanForParagraphs, isEditMode, linkContext, timezone, effectiveLayerDataMap, allComponents, renderComponentBlock, effectiveAncestorIds, isSimpleTextLayer, globalsMeta);
     }
 
     // Check for inline variables in DynamicTextVariable format (legacy)

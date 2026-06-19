@@ -6,6 +6,7 @@ import { getUnpublishedComponents } from '@/lib/repositories/componentRepository
 import { getUnpublishedLayerStyles } from '@/lib/repositories/layerStyleRepository';
 import { getUnpublishedAssets } from '@/lib/repositories/assetRepository';
 import { getUnpublishedTranslationsCount } from '@/lib/repositories/translationRepository';
+import { getUnpublishedGlobalVariablesCount } from '@/lib/repositories/globalVariableRepository';
 import { getDeletedDraftCount } from '@/lib/sync-utils';
 import { noCache } from '@/lib/api-response';
 
@@ -21,6 +22,7 @@ export interface PublishPreviewCounts {
   layerStyles: number;
   assets: number;
   translations: number;
+  globalVariables: number;
   total: number;
 }
 
@@ -39,6 +41,7 @@ export async function GET(_request: NextRequest) {
       layerStylesChanged, layerStylesDeleted,
       assetsChanged, assetsDeleted,
       translationsChanged,
+      globalVariablesChanged,
     ] = await Promise.all([
       getUnpublishedPagesCount(),
       getDeletedDraftCount('pages'),
@@ -53,6 +56,7 @@ export async function GET(_request: NextRequest) {
       getUnpublishedAssets().then(a => a.length),
       getDeletedDraftCount('assets'),
       getUnpublishedTranslationsCount(),
+      getUnpublishedGlobalVariablesCount(),
     ]);
 
     const pages = pagesChanged + pagesDeleted;
@@ -62,10 +66,11 @@ export async function GET(_request: NextRequest) {
     const layerStyles = layerStylesChanged + layerStylesDeleted;
     const assets = assetsChanged + assetsDeleted;
     const translations = translationsChanged;
-    const total = pages + collections + collectionItems + components + layerStyles + assets + translations;
+    const globalVariables = globalVariablesChanged;
+    const total = pages + collections + collectionItems + components + layerStyles + assets + translations + globalVariables;
 
     return noCache({
-      data: { pages, collections, collectionItems, components, layerStyles, assets, translations, total } satisfies PublishPreviewCounts,
+      data: { pages, collections, collectionItems, components, layerStyles, assets, translations, globalVariables, total } satisfies PublishPreviewCounts,
     });
   } catch (error) {
     console.error('Error fetching publish preview:', error);

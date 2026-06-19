@@ -5,12 +5,74 @@ import { formatFieldValue, resolveFieldFromSources } from '@/lib/cms-variables-u
 import { generateLinkHref, type LinkResolutionContext } from '@/lib/link-utils';
 import { contentHasBlockElements, hasBlockElementsWithResolver } from '@/lib/tiptap-utils';
 import { applyComponentOverrides, resolveComponents } from '@/lib/resolve-components';
+import type { GlobalFieldMeta } from '@/lib/collection-field-utils';
+import { getDefaultFormatId, isFormatValidForFieldType } from '@/lib/variable-format-utils';
 import HtmlEmbedRenderer from '@/components/HtmlEmbedRenderer';
 
 /**
  * Context for resolving rich text links - re-exports LinkResolutionContext for backwards compatibility
  */
 export type RichTextLinkContext = LinkResolutionContext;
+
+/**
+ * Replace stale global-variable snapshots in a Tiptap document with the current
+ * metadata from the globals list. Pills still store the stable global id, but
+ * type/format are render-time concerns: if a global changes from number to date,
+ * every layer using that id should render as a date immediately, even if the
+ * layer was never opened and re-saved in the sidebar editor.
+ */
+function refreshGlobalVariableNodes<T>(node: T, globalsMeta?: Record<string, GlobalFieldMeta>): T {
+  if (!globalsMeta || !node || typeof node !== 'object') return node;
+
+  const tiptapNode = node as any;
+  let nextNode = tiptapNode;
+
+  if (
+    tiptapNode.type === 'dynamicVariable' &&
+    tiptapNode.attrs?.variable?.type === 'field' &&
+    tiptapNode.attrs.variable.data?.source === 'global' &&
+    tiptapNode.attrs.variable.data?.field_id
+  ) {
+    const variable = tiptapNode.attrs.variable;
+    const meta = globalsMeta[variable.data.field_id];
+    if (meta) {
+      const currentFormat = variable.data.format;
+      const nextFormat = isFormatValidForFieldType(currentFormat, meta.type)
+        ? currentFormat
+        : getDefaultFormatId(meta.type);
+      const nextVariable = {
+        ...variable,
+        data: {
+          ...variable.data,
+          field_type: meta.type,
+          format: nextFormat,
+        },
+      };
+      nextNode = {
+        ...tiptapNode,
+        attrs: {
+          ...tiptapNode.attrs,
+          label: meta.name,
+          variable: nextVariable,
+        },
+      };
+    }
+  }
+
+  if (Array.isArray(nextNode.content)) {
+    let changed = nextNode !== tiptapNode;
+    const content = nextNode.content.map((child: any) => {
+      const refreshed = refreshGlobalVariableNodes(child, globalsMeta);
+      if (refreshed !== child) changed = true;
+      return refreshed;
+    });
+    if (changed) {
+      return { ...nextNode, content };
+    }
+  }
+
+  return nextNode as T;
+}
 
 /**
  * Get a human-readable label for a text style
@@ -1118,8 +1180,9 @@ export function renderRichText(
   renderComponentBlock?: RenderComponentBlockFn,
   ancestorComponentIds?: Set<string>,
   isSimpleTextElement = false,
+  globalsMeta?: Record<string, GlobalFieldMeta>,
 ): React.ReactNode {
-  const content = variable.data.content;
+  const content = refreshGlobalVariableNodes(variable.data.content, globalsMeta);
 
   if (!content || typeof content !== 'object' || !('type' in content)) {
     return null;

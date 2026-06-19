@@ -98,8 +98,16 @@ export function resolveFieldFromSources(
   collectionItemData?: Record<string, string>,
   pageCollectionItemData?: Record<string, string> | null,
   collectionLayerId?: string,
-  layerDataMap?: Record<string, Record<string, string>>
+  layerDataMap?: Record<string, Record<string, string>>,
+  globalsData?: Record<string, string>
 ): string | undefined {
+  // Global source - site-wide variable, independent of collection/page context.
+  // Renderers merge globals into collectionItemData, so fall back to it when an
+  // explicit globalsData map isn't threaded.
+  if (source === 'global') {
+    return globalsData?.[fieldId] ?? collectionItemData?.[fieldId] ?? pageCollectionItemData?.[fieldId] ?? undefined;
+  }
+
   // Page source - use page data only
   if (source === 'page') {
     return pageCollectionItemData?.[fieldId];

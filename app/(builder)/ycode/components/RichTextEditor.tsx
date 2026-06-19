@@ -639,7 +639,11 @@ const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorProps>(({
     editor.setEditable(!disabled);
   }, [editor, disabled]);
 
-  // Sync CMS context into editor storage so node views can access it
+  // Sync CMS context into editor storage so node views can access it, then
+  // force every dynamic-variable badge to re-render. Badges resolve their label
+  // from this live context, so a renamed/deleted field or global is reflected
+  // instantly without rebuilding the document (which doesn't reliably re-render
+  // the React-rooted atom node views).
   useEffect(() => {
     if (!editor) return;
     const storage = editor.storage as Record<string, any>;
@@ -647,6 +651,8 @@ const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorProps>(({
       ...storage.richTextComponent,
       editorContext: { fieldGroups, allFields, collections, isInsideCollectionLayer },
     };
+    const dvStorage = storage.dynamicVariable as { renderers?: Set<() => void> } | undefined;
+    dvStorage?.renderers?.forEach((render) => render());
   }, [editor, fieldGroups, allFields, collections, isInsideCollectionLayer]);
 
   // Sync HTML embed dialog opener into editor storage so the node view can trigger it
@@ -923,7 +929,7 @@ const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorProps>(({
     <div className={cn('flex-1 rich-text-editor relative', isFullVariant && 'flex flex-col gap-2', fullHeight && 'min-h-0')}>
       {/* Formatting toolbar - Full variant (CMS style like original TiptapEditor) */}
       {withFormatting && showFormattingToolbar && isFullVariant && (
-        <div className="flex items-center gap-2 sticky top-8 bg-background z-10 py-2 -my-2">
+        <div className="flex flex-wrap items-center gap-2 sticky top-8 bg-background z-10 py-2 -my-2">
           <Select
             value={
               editor.isActive('heading', { level: 1 }) ? 'h1' :

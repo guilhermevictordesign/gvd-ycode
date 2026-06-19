@@ -48,6 +48,7 @@ import AirtableSyncButton from './AirtableSyncButton';
 import CollectionItemContextMenu from './CollectionItemContextMenu';
 import FieldFormDialog from './FieldFormDialog';
 import type { FieldFormData } from './FieldFormDialog';
+import GlobalsManager from './GlobalsManager';
 import CollectionItemSheet from './CollectionItemSheet';
 import CSVImportDialog from './CSVImportDialog';
 import { CollaboratorBadge } from '@/components/collaboration/CollaboratorBadge';
@@ -428,6 +429,9 @@ const CMS = React.memo(function CMS() {
   const [hoveredCollectionId, setHoveredCollectionId] = useState<string | null>(null);
   const [collectionDropdownId, setCollectionDropdownId] = useState<string | null>(null);
   const [loadingSampleCollectionId, setLoadingSampleCollectionId] = useState<string | null>(null);
+  // Which CMS section the right panel shows: the selected collection or the
+  // site-wide Global variables manager.
+  const [cmsSection, setCmsSection] = useState<'collections' | 'globals'>('collections');
 
   // Confirm dialog state
   const [deleteItemDialogOpen, setDeleteItemDialogOpen] = useState(false);
@@ -1490,6 +1494,7 @@ const CMS = React.memo(function CMS() {
   };
 
   const handleCollectionSelect = (collectionId: string) => {
+    setCmsSection('collections');
     setSelectedCollectionId(collectionId);
     navigateToCollection(collectionId);
   };
@@ -2070,6 +2075,23 @@ const CMS = React.memo(function CMS() {
   // Collections sidebar component
   const collectionsSidebar = (
     <div className="w-64 shrink-0 bg-background border-r flex flex-col overflow-hidden px-4">
+      {/* Global variables - distinct site-wide section, set apart from collections */}
+      <div className="py-4 shrink-0">
+        <button
+          type="button"
+          onClick={() => setCmsSection('globals')}
+          className={cn(
+            'px-3 h-8 rounded-lg flex gap-2 items-center text-left w-full',
+            cmsSection === 'globals'
+              ? 'bg-primary text-primary-foreground'
+              : 'hover:bg-secondary/50 text-secondary-foreground/80 dark:text-muted-foreground'
+          )}
+        >
+          <Icon name="globe" className="size-3.5 shrink-0" />
+          <span className="font-medium">Global variables</span>
+        </button>
+      </div>
+      <div className="border-t -mx-4 shrink-0" />
       <header className="py-5 flex items-center justify-between shrink-0">
         <span className="font-medium">Collections</span>
         {canManageSchema && (
@@ -2122,7 +2144,7 @@ const CMS = React.memo(function CMS() {
                 <SortableCollectionItem
                   key={collection.id}
                   collection={collection}
-                  isSelected={selectedCollectionId === collection.id}
+                  isSelected={cmsSection === 'collections' && selectedCollectionId === collection.id}
                   isHovered={hoveredCollectionId === collection.id}
                   openDropdownId={collectionDropdownId}
                   isRenaming={canManageSchema && collectionRename.renamingId === collection.id}
@@ -2155,6 +2177,16 @@ const CMS = React.memo(function CMS() {
       </div>
     </div>
   );
+
+  // Global variables section takes over the right panel
+  if (cmsSection === 'globals') {
+    return (
+      <div className="flex-1 bg-background flex min-w-0">
+        {collectionsSidebar}
+        <GlobalsManager canManageSchema={canManageSchema} timezone={timezone} />
+      </div>
+    );
+  }
 
   // No collection selected - show sidebar with empty state
   if (!selectedCollectionId) {

@@ -1177,6 +1177,63 @@ export interface CollectionItemWithValues extends CollectionItem {
   publish_status?: 'new' | 'updated' | 'deleted'; // Status badge for publish modal
 }
 
+// Global Variables (site-wide typed singletons)
+//
+// A global combines a field-like schema (name + type) and its value in one
+// row. Its type is a subset of CollectionFieldType so it can ride the same
+// FieldVariable binding/resolution/formatting rails as collection fields.
+export type GlobalVariableType = Extract<
+  CollectionFieldType,
+  'text' | 'rich_text' | 'number' | 'date' | 'color' | 'image' | 'link'
+>;
+
+export const GLOBAL_VARIABLE_TYPES: readonly GlobalVariableType[] = [
+  'text',
+  'rich_text',
+  'number',
+  'date',
+  'color',
+  'image',
+  'link',
+] as const;
+
+/** Runtime guard for an allowed global variable type (used by API validation). */
+export function isValidGlobalVariableType(type: unknown): type is GlobalVariableType {
+  return typeof type === 'string' && (GLOBAL_VARIABLE_TYPES as readonly string[]).includes(type);
+}
+
+export interface GlobalVariable {
+  id: string; // UUID
+  name: string;
+  key: string | null; // Stable slug used for resolution/imports
+  type: GlobalVariableType;
+  value: string | null; // Stored as text, cast based on type (same as collection values)
+  data: CollectionFieldData; // Type-specific config (format, options)
+  order: number;
+  is_published: boolean;
+  created_at: string;
+  updated_at: string;
+  deleted_at: string | null;
+}
+
+export interface CreateGlobalVariableData {
+  name: string;
+  key?: string | null;
+  type: GlobalVariableType;
+  value?: string | null;
+  data?: CollectionFieldData;
+  order?: number;
+}
+
+export interface UpdateGlobalVariableData {
+  name?: string;
+  key?: string | null;
+  type?: GlobalVariableType;
+  value?: string | null;
+  data?: CollectionFieldData;
+  order?: number;
+}
+
 // Collection Import Types
 export type CollectionImportStatus = 'pending' | 'processing' | 'completed' | 'failed';
 
@@ -1227,10 +1284,19 @@ export interface FieldVariable extends VariableType {
     field_type: CollectionFieldType | null;
     relationships: string[];
     format?: string;
-    /** Source of the field data: 'page' for page collection, 'collection' for collection layer */
-    source?: 'page' | 'collection';
+    /**
+     * Source of the field data: 'page' for page collection, 'collection' for
+     * collection layer, 'global' for a site-wide global variable.
+     */
+    source?: 'page' | 'collection' | 'global';
     /** ID of the collection layer this field belongs to (for nested collections) */
     collection_layer_id?: string;
+    /**
+     * ID of the global variable this binding points to (only when source is
+     * 'global'). When set, field_id mirrors this value so the existing
+     * resolution helpers can key on it uniformly.
+     */
+    global_id?: string;
     /** Pre-resolved raw value from injectCollectionData (survives stripSSROnlyData) */
     _resolvedValue?: string;
   };
@@ -1722,6 +1788,7 @@ export interface PublishStats {
     assets: PublishTableStats;
     locales: PublishTableStats;
     translations: PublishTableStats;
+    global_variables: PublishTableStats;
     css: PublishTableStats;
   };
 }

@@ -45,6 +45,7 @@ import { useEditorStore } from '@/stores/useEditorStore';
 import { usePagesStore } from '@/stores/usePagesStore';
 import { useComponentsStore } from '@/stores/useComponentsStore';
 import { useCollectionsStore } from '@/stores/useCollectionsStore';
+import { useGlobalsStore } from '@/stores/useGlobalsStore';
 import { useCollectionLayerStore } from '@/stores/useCollectionLayerStore';
 import { useLocalisationStore } from '@/stores/useLocalisationStore';
 import { useAssetsStore } from '@/stores/useAssetsStore';
@@ -722,6 +723,7 @@ const CenterCanvas = React.memo(function CenterCanvas({
   const collectionItemsFromStore = useCollectionsStore((state) => state.items);
   const collectionsFromStore = useCollectionsStore((state) => state.collections);
   const collectionFieldsFromStore = useCollectionsStore((state) => state.fields);
+  const globalsFromStore = useGlobalsStore((state) => state.globals);
 
   // Collection layer store for independent layer data
   const referencedItems = useCollectionLayerStore((state) => state.referencedItems);
@@ -1359,8 +1361,8 @@ const CenterCanvas = React.memo(function CenterCanvas({
     }
     if (!layers.length) return undefined;
     const page = editingComponentId ? null : currentPage;
-    return buildFieldGroupsForLayer(editingLayerId, layers, page, collectionFieldsFromStore, collectionsFromStore);
-  }, [editingLayerId, editingComponentId, activeComponentVariantId, componentDrafts, currentPageId, currentDraft, currentPage, collectionFieldsFromStore, collectionsFromStore]);
+    return buildFieldGroupsForLayer(editingLayerId, layers, page, collectionFieldsFromStore, collectionsFromStore, globalsFromStore);
+  }, [editingLayerId, editingComponentId, activeComponentVariantId, componentDrafts, currentPageId, currentDraft, currentPage, collectionFieldsFromStore, collectionsFromStore, globalsFromStore]);
 
   const textFieldGroups = useMemo(
     () => filterFieldGroupsByType(fieldGroups, SIMPLE_TEXT_FIELD_TYPES),
@@ -1569,8 +1571,8 @@ const CenterCanvas = React.memo(function CenterCanvas({
     }
     if (!layers.length) return undefined;
     const page = editingComponentId ? null : currentPage;
-    return buildFieldGroupsForLayer(richTextSheetLayerId, layers, page, collectionFieldsFromStore, collectionsFromStore);
-  }, [richTextSheetLayerId, editingComponentId, activeComponentVariantId, componentDrafts, currentPageId, currentDraft, currentPage, collectionFieldsFromStore, collectionsFromStore]);
+    return buildFieldGroupsForLayer(richTextSheetLayerId, layers, page, collectionFieldsFromStore, collectionsFromStore, globalsFromStore);
+  }, [richTextSheetLayerId, editingComponentId, activeComponentVariantId, componentDrafts, currentPageId, currentDraft, currentPage, collectionFieldsFromStore, collectionsFromStore, globalsFromStore]);
 
   // Track the current value locally so the value prop always matches the editor's
   // internal state. This prevents the editor's sync effect from resetting content

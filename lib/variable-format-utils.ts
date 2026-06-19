@@ -337,6 +337,21 @@ export function isFormattableFieldType(fieldType: string | null | undefined): bo
   return isDateFieldType(fieldType) || fieldType === 'number';
 }
 
+/**
+ * Whether a stored format preset id is valid for the given field type. Used to
+ * detect a stale format left behind when a field/global changes type (e.g. a
+ * number preset on a field that's now a date), so callers can reset it.
+ */
+export function isFormatValidForFieldType(
+  format: string | null | undefined,
+  fieldType: string | null | undefined
+): boolean {
+  if (!format) return true;
+  if (isDateFieldType(fieldType)) return datePresetMap.has(format);
+  if (fieldType === 'number') return numberPresetMap.has(format);
+  return false;
+}
+
 /** Get format preset sections for a field type (grouped with titles) */
 export function getFormatSectionsForFieldType(
   fieldType: string | null | undefined
@@ -370,8 +385,11 @@ export function buildFieldVariableData(
       field_type: fieldType,
       relationships: relationshipPath,
       ...(defaultFormat && { format: defaultFormat }),
-      ...(source && { source: source as 'page' | 'collection' }),
+      ...(source && { source: source as 'page' | 'collection' | 'global' }),
       ...(layerId && { collection_layer_id: layerId }),
+      // For global bindings, mirror the id so resolution can key on it even if
+      // field_id is later remapped (e.g. component instance id transforms).
+      ...(source === 'global' && { global_id: fieldId }),
     },
   };
 }

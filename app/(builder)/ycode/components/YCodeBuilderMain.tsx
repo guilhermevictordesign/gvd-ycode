@@ -804,6 +804,10 @@ export default function YCodeBuilder({ children }: YCodeBuilderProps = {} as YCo
             const { useColorVariablesStore } = await import('@/stores/useColorVariablesStore');
             asyncTasks.push(useColorVariablesStore.getState().loadColorVariables());
 
+            // Load global variables (available as a binding source everywhere)
+            const { useGlobalsStore } = await import('@/stores/useGlobalsStore');
+            asyncTasks.push(useGlobalsStore.getState().loadGlobals());
+
             // Wait for all async tasks to complete
             if (asyncTasks.length > 0) {
               await Promise.all(asyncTasks);

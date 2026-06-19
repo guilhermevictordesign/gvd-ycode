@@ -14,6 +14,7 @@ import type {
   CollectionFieldType,
   CollectionItemWithValues,
   CollectionVariable,
+  GlobalVariable,
   Layer,
   VisibilityOperator,
 } from '@/types';
@@ -622,8 +623,88 @@ export function getItemDisplayName(
 // Field Groups Utilities
 // =============================================================================
 
-/** Source of field data: 'page' for dynamic page data, 'collection' for collection layer data */
-export type FieldSourceType = 'page' | 'collection';
+/** Source of field data: 'page' for dynamic page data, 'collection' for collection layer data, 'global' for a site-wide global variable */
+export type FieldSourceType = 'page' | 'collection' | 'global';
+
+/** Sentinel collection id assigned to global-variable pseudo-fields. */
+export const GLOBALS_COLLECTION_ID = '__globals__';
+
+/**
+ * Shape a global variable as a pseudo `CollectionField` so it can flow through
+ * the existing field-group / selector / resolution machinery. The field id is
+ * the global id (resolution keys on it via globalsData).
+ */
+export function globalToPseudoField(global: GlobalVariable): CollectionField {
+  return {
+    id: global.id,
+    name: global.name,
+    key: global.key,
+    type: global.type,
+    default: null,
+    fillable: true,
+    order: global.order,
+    collection_id: GLOBALS_COLLECTION_ID,
+    reference_collection_id: null,
+    created_at: global.created_at,
+    updated_at: global.updated_at,
+    deleted_at: null,
+    hidden: false,
+    is_computed: false,
+    data: global.data ?? {},
+    is_published: global.is_published,
+  };
+}
+
+/**
+ * Build a flat `globalId -> value` map from global variables. This map is
+ * merged into the collection/page item values consumed by field resolution so
+ * global-source bindings resolve anywhere (global ids are unique UUIDs, so they
+ * never collide with collection field ids). Shared by the builder canvas,
+ * published SSR, and build-time injection so the keying stays consistent.
+ */
+export function buildGlobalsValueMap(globals: GlobalVariable[]): Record<string, string> {
+  return Object.fromEntries(globals.map((g) => [g.id, g.value ?? '']));
+}
+
+/** Live metadata for a global variable, keyed by id (the pill's stable identifier). */
+export interface GlobalFieldMeta {
+  type: string;
+  name: string;
+}
+
+/**
+ * Build an `globalId -> { type, name }` map from global variables. Pills store
+ * only the global id; renderers use this map to resolve the *current* type and
+ * label at render time instead of trusting the snapshot baked into the pill, so
+ * a global's type/name change is reflected everywhere without re-saving layers.
+ */
+export function buildGlobalsMetaMap(globals: GlobalVariable[]): Record<string, GlobalFieldMeta> {
+  return Object.fromEntries(globals.map((g) => [g.id, { type: g.type, name: g.name }]));
+}
+
+/**
+ * Merge a globals value map into a collection/page field-data map for field
+ * resolution. Collection/page values win on collision (global ids are unique
+ * UUIDs, so collisions never actually happen) — the precedence is fixed here so
+ * the builder canvas and published SSR stay consistent.
+ *
+ * Allocation-conscious: this runs once per layer across the whole tree, so it
+ * avoids copying the globals map when it doesn't have to.
+ *  - No globals          → return the base untouched.
+ *  - No collection/page  → return the *shared* globals reference (no copy).
+ *    context (base empty)   On published pages collection values are pre-resolved
+ *                           and stripped, so this is the case for nearly every
+ *                           layer; returning the reference keeps it zero-alloc.
+ *  - Both present        → allocate a merged map (only collection-context layers).
+ */
+export function mergeGlobalsIntoFieldData(
+  base: Record<string, string> | undefined,
+  globalsData: Record<string, string> | undefined
+): Record<string, string> | undefined {
+  if (!globalsData || Object.keys(globalsData).length === 0) return base;
+  if (!base || Object.keys(base).length === 0) return globalsData;
+  return { ...globalsData, ...base };
+}
 
 /** A group of fields with a source, label, optional detail (e.g. collection name), and optional layer ID */
 export interface FieldGroup {
@@ -654,6 +735,8 @@ export interface BuildFieldGroupsConfig {
   collections: { id: string; name: string }[];
   /** Multi-asset collection context (when inside a multi-asset nested collection) */
   multiAssetContext?: { sourceFieldId: string; source: FieldSourceType } | null;
+  /** Site-wide global variables (always available regardless of layer context) */
+  globals?: GlobalVariable[];
 }
 
 /**
@@ -661,7 +744,7 @@ export interface BuildFieldGroupsConfig {
  * Returns groups for collection layer fields and/or page collection fields.
  */
 export function buildFieldGroups(config: BuildFieldGroupsConfig): FieldGroup[] | undefined {
-  const { parentCollectionLayers, page, fieldsByCollectionId, collections, multiAssetContext } = config;
+  const { parentCollectionLayers, page, fieldsByCollectionId, collections, multiAssetContext, globals } = config;
   const groups: FieldGroup[] = [];
   const addedCollectionIds = new Set<string>();
 
@@ -714,6 +797,18 @@ export function buildFieldGroups(config: BuildFieldGroupsConfig): FieldGroup[] |
         source: 'page',
       });
     }
+  }
+
+  // Site-wide global variables are always available, independent of layer
+  // context. Type filtering downstream (filterFieldGroupsByType) restricts
+  // which globals appear in each binding surface.
+  if (globals && globals.length > 0) {
+    groups.push({
+      fields: globals.map(globalToPseudoField),
+      label: 'Global variables',
+      detail: 'Globals',
+      source: 'global',
+    });
   }
 
   return groups.length > 0 ? groups : undefined;
@@ -1058,6 +1153,7 @@ export function buildFieldGroupsForLayer(
   page: BuildFieldGroupsConfig['page'],
   fieldsByCollectionId: Record<string, CollectionField[]>,
   collections: { id: string; name: string }[],
+  globals?: GlobalVariable[],
 ): FieldGroup[] | undefined {
   const parents = findAllParentCollectionLayers(layers, layerId);
   const parentCollection = parents[0] || null;
@@ -1079,5 +1175,6 @@ export function buildFieldGroupsForLayer(
     fieldsByCollectionId,
     collections,
     multiAssetContext,
+    globals,
   });
 }
