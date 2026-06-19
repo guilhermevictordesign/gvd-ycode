@@ -20,7 +20,7 @@ import { uploadFile } from '@/lib/file-upload';
 import { getFieldsByCollectionId, getFieldsByKeyAcrossCollections, createField } from '@/lib/repositories/collectionFieldRepository';
 import {
   createItemsBulk,
-  getItemsByCollectionId,
+  getAllItemsByCollectionId,
 } from '@/lib/repositories/collectionItemRepository';
 import {
   insertValuesBulk,
@@ -773,8 +773,12 @@ async function prepareSyncState(connection: AirtableConnection): Promise<SyncSta
   const { collectionId, recordIdFieldId } = connection;
   const result: SyncResult = { created: 0, updated: 0, deleted: 0, errors: [], syncedAt: new Date().toISOString() };
 
-  const [{ items: existingItems }, fields] = await Promise.all([
-    getItemsByCollectionId(collectionId),
+  // Use getAllItemsByCollectionId (paginates past PostgREST's 1000-row cap) so
+  // reconciliation sees every item. A truncated list makes items beyond the cap
+  // look "missing", so they're never matched (and the dedup guard then blocks
+  // re-creating them), leaving their values permanently stale.
+  const [existingItems, fields] = await Promise.all([
+    getAllItemsByCollectionId(collectionId),
     getFieldsByCollectionId(collectionId),
   ]);
 
