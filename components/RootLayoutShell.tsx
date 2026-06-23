@@ -1,5 +1,6 @@
 import React from 'react';
 import type { Metadata } from 'next';
+import { Analytics } from '@vercel/analytics/next';
 import DarkModeProvider from '@/components/DarkModeProvider';
 
 export const defaultMetadata: Metadata = {
@@ -41,6 +42,7 @@ export default function RootLayoutShell({
         <DarkModeProvider>
           {children}
         </DarkModeProvider>
+        <Analytics />
       </body>
     </html>
   );
