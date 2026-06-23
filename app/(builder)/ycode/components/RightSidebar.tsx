@@ -199,6 +199,7 @@ const RightSidebar = React.memo(function RightSidebar({
   }, [urlState.rightTab, activeTab]);
 
   const [currentClassInput, setCurrentClassInput] = useState<string>('');
+  const classInputRef = useRef<HTMLInputElement>(null);
   const [customId, setCustomId] = useState<string>('');
   const [containerTag, setContainerTag] = useState<string>('div');
   const [textTag, setTextTag] = useState<string>('p');
@@ -943,6 +944,12 @@ const RightSidebar = React.memo(function RightSidebar({
     if (!selectedLayer || !chip) return;
     applyChipClasses(chip, activeChipClassTokens.filter(cls => cls !== classToRemove).join(' '));
   }, [selectedLayer, activeChipClassTokens, applyChipClasses]);
+
+  // Copy a class into the input so it can be edited and re-added.
+  const editClass = useCallback((classToEdit: string) => {
+    setCurrentClassInput(classToEdit);
+    classInputRef.current?.focus();
+  }, []);
 
   // Handle key press for adding classes
   const handleKeyPress = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -2010,14 +2017,29 @@ const RightSidebar = React.memo(function RightSidebar({
             onToggle={() => setClassesOpen(!classesOpen)}
           >
             <div className="flex flex-col gap-3">
-              <Input
-                value={currentClassInput}
-                onChange={(e) => setCurrentClassInput(e.target.value)}
-                onKeyDown={handleKeyPress}
-                placeholder="Type class and press Enter..."
-                disabled={isLockedByOther}
-                className={isLockedByOther ? 'opacity-50 cursor-not-allowed' : ''}
-              />
+              <div className="relative">
+                <Input
+                  ref={classInputRef}
+                  value={currentClassInput}
+                  onChange={(e) => setCurrentClassInput(e.target.value)}
+                  onKeyDown={handleKeyPress}
+                  placeholder="Type class and press Enter..."
+                  disabled={isLockedByOther}
+                  className={cn('pr-8', isLockedByOther && 'opacity-50 cursor-not-allowed')}
+                />
+                {currentClassInput && (
+                  <Button
+                    variant="ghost"
+                    size="xs"
+                    className="absolute right-2 top-1/2 -translate-y-1/2 size-6 p-0"
+                    onClick={() => setCurrentClassInput('')}
+                    disabled={isLockedByOther}
+                    aria-label="Clear class input"
+                  >
+                    <Icon name="x" className="size-3" />
+                  </Button>
+                )}
+              </div>
 
               {layerOnlyClasses.length > 0 && (
                 <div className="flex flex-wrap gap-1.5">
@@ -2028,7 +2050,15 @@ const RightSidebar = React.memo(function RightSidebar({
                       className="truncate max-w-50"
                       key={`layer-${index}`}
                     >
-                      <span className="truncate">{cls}</span>
+                      <button
+                        type="button"
+                        onClick={() => editClass(cls)}
+                        disabled={isLockedByOther}
+                        className="truncate cursor-pointer select-none disabled:cursor-not-allowed"
+                        title="Edit class"
+                      >
+                        {cls}
+                      </button>
                       <Button
                         onClick={() => removeClass(cls)}
                         className="size-4! p-0! -mr-1"
@@ -2060,7 +2090,15 @@ const RightSidebar = React.memo(function RightSidebar({
                         key={`style-${index}`}
                         className="truncate max-w-50"
                       >
-                        <span className="truncate">{cls}</span>
+                        <button
+                          type="button"
+                          onClick={() => editClass(cls)}
+                          disabled={isLockedByOther}
+                          className="truncate cursor-pointer select-none disabled:cursor-not-allowed"
+                          title="Edit class"
+                        >
+                          {cls}
+                        </button>
                         <Button
                           onClick={() => removeStyleClass(cls)}
                           className="size-4! p-0! -mr-1"
