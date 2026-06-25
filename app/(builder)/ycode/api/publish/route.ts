@@ -788,7 +788,8 @@ export async function POST(request: NextRequest) {
       // we warm exactly the routes that were invalidated. For full
       // invalidation we enumerate every published route — affects every
       // page anyway, and visitors shouldn't pay the cold-cache cost just
-      // because a color variable changed. Capped inside warmRoutes.
+      // because a color variable changed. warmRoutes batches and self-chains
+      // through the whole list up to its overall cap.
       // Deleted/renamed routes are skipped intentionally — their URLs no
       // longer resolve.
       let liveRoutesToWarm = invalidationResult.strategy === 'selective'

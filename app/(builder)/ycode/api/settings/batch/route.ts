@@ -38,8 +38,9 @@ export async function PUT(request: NextRequest) {
       await clearAllCache();
 
       // Prime the cache so the first visit to any public page after this
-      // settings change doesn't pay the cold-cache cost. Capped inside
-      // warmRoutes; long-tail routes self-warm on first real visit.
+      // settings change doesn't pay the cold-cache cost. warmRoutes batches
+      // and self-chains through every route up to the overall cap; anything
+      // beyond that self-warms on first real visit.
       try {
         const routes = await getAllPublishedRoutes();
         const warmResult = await warmRoutes(routes, request);
