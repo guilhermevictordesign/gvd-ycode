@@ -24,6 +24,17 @@ type SupabaseAdmin = NonNullable<Awaited<ReturnType<typeof getSupabaseAdmin>>>;
 
 const SUPABASE_IN_LIMIT = 500;
 
+/**
+ * Vercel's bulk cache-tag purge API accepts at most 16 tags per call
+ * (https://vercel.com/docs/caching/cdn-cache/purge). Passing a larger array
+ * gets rejected, so every tag beyond the cap would silently keep serving
+ * stale content. Dynamic (CMS) pages make this trivial to hit: a single
+ * dynamic page expands to one route per published item, so a component/style
+ * change touching a dynamic template can produce dozens of routes in one
+ * selective-invalidation pass. We chunk to stay under the cap.
+ */
+const MAX_TAGS_PER_INVALIDATION = 16;
+
 /** Split an array into chunks safe for Supabase `.in()` queries. */
 function chunk<T>(arr: T[], size: number): T[][] {
   const chunks: T[][] = [];
@@ -31,6 +42,19 @@ function chunk<T>(arr: T[], size: number): T[][] {
     chunks.push(arr.slice(i, i + size));
   }
   return chunks;
+}
+
+/**
+ * Purge a set of cache tags via Vercel's CDN purge API, chunked to respect the
+ * 16-tags-per-call limit. Batches are settled independently so one failed batch
+ * doesn't abort the rest; the first error is rethrown for the caller to handle.
+ */
+export async function purgeTagsOnVercel(tags: string[]): Promise<void> {
+  if (tags.length === 0) return;
+  const batches = chunk(tags, MAX_TAGS_PER_INVALIDATION);
+  const results = await Promise.allSettled(batches.map((batch) => invalidateByTag(batch)));
+  const failure = results.find((r): r is PromiseRejectedResult => r.status === 'rejected');
+  if (failure) throw failure.reason;
 }
 
 /**
@@ -80,7 +104,10 @@ export async function invalidatePages(routePaths: string[]): Promise<boolean> {
   try {
     const tags = routePaths.map((p) => `route-/${p}`);
     if (process.env.VERCEL === '1') {
-      await invalidateByTag(tags);
+      // Chunked to respect Vercel's 16-tags-per-purge cap — without this,
+      // routes beyond the first 16 (common when a dynamic CMS page expands to
+      // many item URLs) would never be invalidated and keep serving stale HTML.
+      await purgeTagsOnVercel(tags);
     } else {
       for (const tag of tags) {
         revalidateTag(tag, { expire: 0 });
