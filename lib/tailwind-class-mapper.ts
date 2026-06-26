@@ -191,8 +191,8 @@ function formatMeasurementClass(
     return `${prefix}-[${value}]`;
   }
 
-  // For values starting with a digit but not caught above
-  if (value.match(/^\d/)) {
+  // For values starting with a digit or leading decimal point (e.g. ".875rem")
+  if (value.match(/^\.?\d/)) {
     return `${prefix}-[${value}]`;
   }
 
@@ -739,10 +739,10 @@ export function propertyToClass(
         // Google/custom fonts: replace spaces with underscores for Tailwind arbitrary values
         return `font-[${value.replace(/\s+/g, '_')}]`;
       case 'lineHeight':
-        return value.match(/^\d/) ? `leading-[${value}]` : `leading-${value}`;
+        return value.match(/^\.?\d/) ? `leading-[${value}]` : `leading-${value}`;
       case 'letterSpacing':
-        // Check if value starts with digit/minus and doesn't already have a unit
-        if (value.match(/^-?\d/)) {
+        // Check if value starts with digit/minus/decimal and doesn't already have a unit
+        if (value.match(/^-?\.?\d/)) {
           // Check if value already has a unit (ends with letters or %)
           const hasUnit = /[a-z%]$/i.test(value);
           return hasUnit ? `tracking-[${value}]` : `tracking-[${value}em]`;
